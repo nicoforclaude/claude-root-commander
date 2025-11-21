@@ -8,6 +8,12 @@ This plugin provides commands for managing multiple repositories from a root wor
 
 ## Installation
 
+### Prerequisites
+- Claude Code CLI with plugin support
+- **Windows users:** [windows-shell](https://github.com/nicoforclaude/claude-windows-shell) plugin for proper shell command handling
+
+### Quick Installation
+
 Install this plugin in your Claude Code environment:
 
 ```bash
