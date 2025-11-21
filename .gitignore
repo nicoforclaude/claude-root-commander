@@ -22,3 +22,6 @@ npm-debug.log*
 tmp/
 temp/
 *.tmp
+
+# Local documentation (private paths/data)
+docs/.local/

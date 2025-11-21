@@ -1,4 +1,4 @@
-
+**Note:** Private planning files with local paths should be stored in `docs/.local/` (gitignored).
 
 ## Current
 
@@ -6,31 +6,31 @@
 Select a repository to run:
 =================================
 > 1. Root (workspace)
-  2. chessarms/tsmain
-  3. chessarms/calc
-  4. chessarms/fishwrap
-  5. nomadsync-io/tsmain
-  6. personal/nicola-solutions
-  7. nicoforclaude (workspace)
+  2. org/project-a
+  3. org/project-b
+  4. plugins (workspace)
 =================================
 
 Current Mode: [Claude][none]
-Tab/w: switch mode | c: startup mode | Up/Down: navigate | Enter: select | 1-7: direct | q: quit
+Tab/w: switch mode | c: startup mode | Up/Down: navigate | Enter: select | 1-4: direct | q: quit
 ```
-## Desired
 
-Problems:
-workspaces
-cannot go into workspaces
+## Problems
 
-Some repos are nice to see always like:
-- chessarms/tsmain
-- personal/nicola-solutions
-- nomadsync-io/tsmain
+- Cannot navigate into workspace entries
+- Flat list doesn't reflect workspace hierarchy
+- **TODO: Private paths in documentation** - The following files contain private repo paths and need genericization:
+  - `plugins/root/commands/runner/prepare_runner_script.md` (multiple references)
+  - `plugins/root/commands/health/print_repos_health.md` (example output)
+  - `plugins/root/commands/health/inspect_root_health.md` (examples)
+  - `plugins/root/commands/health/inspect_repos_health.md` (extensive examples)
+  - `docs/planning.md` (JSON example still has old paths - lines 57, 65, 70)
 
-Some would be nice to be openable after navigation to workspace, like:
-- nicoforclaude (workspace).
-After navigation I would see repos with specific Claude Plugin marketplaces, like nicoforclaude/windows-shell.
+## Requirements
+
+**Always visible repos:** Some repos should always appear in main list
+
+**Hierarchical access:** Workspaces should be navigable to show child repos
 
 
 ## Suggested storage
@@ -87,12 +87,10 @@ After navigation I would see repos with specific Claude Plugin marketplaces, lik
 
 ### Explanation of `behaviour` field
 
-...
-
 Behaviours:
 - `open`: always show this entry in the main list and is opened by path by Claude and IDE
 - `hoist`: show children in the main list, but not this entry
-- `closed`: do not show this entry or its children in the main list, but allow
+- `hidden`: user decided not to show this repo in the main list
 
 
 
