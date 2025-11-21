@@ -1,0 +1,14 @@
+{
+  "name": "claude-root-commander",
+  "owner": {
+    "name": "Nico"
+  },
+  "description": "Root workspace management commands for Claude Code",
+  "plugins": [
+    {
+      "name": "root",
+      "source": "./plugins/root",
+      "description": "Commands for managing multiple repositories, health checks, and CLAUDE.md templates"
+    }
+  ]
+}
