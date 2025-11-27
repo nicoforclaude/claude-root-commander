@@ -6,8 +6,8 @@ Commands for managing multiple repositories from a root workspace.
 
 ### Git Operations
 
-**`/root:git:update_repos_list`**
-Update the list of managed repositories in the root configuration.
+**`/root:git:scan-for-repos`**
+Scan workspace for Git repositories and update `repos.json`.
 
 **`/root:git:print_repos_status`**
 Print git status for all managed repositories.

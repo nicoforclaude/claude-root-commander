@@ -23,5 +23,8 @@ tmp/
 temp/
 *.tmp
 
+# Output files
+.printOutput/
+
 # Local documentation (private paths/data)
 docs/.local/
