@@ -12,20 +12,28 @@ This plugin provides commands for managing multiple repositories from a root wor
 - Claude Code CLI with plugin support
 - **Windows users:** [windows-shell](https://github.com/nicoforclaude/claude-windows-shell) plugin for proper shell command handling
 
-### Quick Installation
+### Step 1: Add the Marketplace
 
-Install this plugin in your Claude Code environment:
+```
+/plugin marketplace add https://github.com/nicoforclaude/claude-root-commander
+```
 
-```bash
-# From the plugin marketplace (when available)
-# Or manually copy to your plugins directory
+Or locally:
+```
+/plugin marketplace add /path/to/claude-root-commander
+```
+
+### Step 2: Install the Plugin
+
+```
+/plugin install root@claude-root-commander
 ```
 
 ## Commands
 
 ### Git Operations (`/root:git:*`)
 
-- `/root:git:update_repos_list` - Update the list of managed repositories
+- `/root:git:scan-for-repos` - Scan workspace for Git repositories and update `repos.json`
 - `/root:git:print_repos_status` - Print git status for all managed repositories
 
 ### Health Checks (`/root:health:*`)
@@ -47,13 +55,15 @@ Install this plugin in your Claude Code environment:
 
 ```
 plugins/root/
+├── .claude-plugin/
+│   └── plugin.json
 ├── commands/
 │   ├── git/              # Git operations
 │   ├── health/           # Health checks
 │   ├── root_claude/      # CLAUDE.md management
 │   └── runner/           # Runner scripts
-└── .claude-plugin/
-    └── plugin.json
+└── docs/
+    └── plugin-state.md   # State directory and schema documentation
 ```
 
 ## License
