@@ -34,8 +34,7 @@ The wrapper scripts (`launcher.ps1` / `launcher.sh`) automatically compute paths
 | Tab / w | Cycle mode (Claude → IDE → Claude+IDE → PowerShell) |
 | c | Cycle Claude startup mode (none → startup check → /commit) |
 | d | Scan git diff for all repos (shows +/- stats inline) |
-| a | Add repo to managed list |
-| r | Remove repo from managed list |
+| m | Manage repos (toggle visibility with checkboxes) |
 | q | Quit |
 
 ## Modes
@@ -56,8 +55,26 @@ The wrapper scripts (`launcher.ps1` / `launcher.sh`) automatically compute paths
 Config stored in: `{CLAUDE_PLUGINS_ROOT}/nicoforclaude/root/`
 
 - `repos.json` - List of discovered repositories (from scan-for-repos)
-- `runner-config.json` - User configuration (entries, IDEs, preferences)
+- `runner-config.json` - User configuration (entries, IDEs, preferences, unmanagedPaths)
 - `diffs.json` - Cached git diff stats
+
+## Managed vs Unmanaged Repos
+
+The launcher supports a managed/unmanaged workflow for repositories:
+
+- **All repos** come from `repos.json` (populated by scan-for-repos)
+- **Unmanaged repos** are listed in `unmanagedPaths` in config (hidden from menus)
+- **Managed repos** = all repos minus unmanaged
+- **Entries** = curated repos with custom settings (IDE preference, display name)
+
+**Main menu shows:**
+1. All entries (repos with custom settings)
+2. "(Other managed - N repos)" item if there are managed repos not in entries
+
+**Press 'm' to:**
+- See all repos with checkboxes
+- Toggle repos between managed/unmanaged
+- Unmanaged repos are hidden from all menus
 
 ## IDE Detection
 

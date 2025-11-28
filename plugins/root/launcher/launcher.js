@@ -143,6 +143,11 @@ function loadConfig() {
     // Create default config from repos
     config = createDefaultConfig(reposData.repositories);
     saveJson(paths.config, config);
+  } else {
+    // Ensure unmanagedPaths exists (for existing configs)
+    if (!config.unmanagedPaths) {
+      config.unmanagedPaths = [];
+    }
   }
 
   // Load diffs.json
@@ -157,6 +162,7 @@ function createDefaultConfig(repositories) {
     modes: ['Claude', 'IDE', 'Claude + IDE', 'PowerShell'],
     claudeStartupModes: ['none', 'with startup check', 'with /commit'],
     ides: detectIDEs(),
+    unmanagedPaths: [], // Repos excluded from main menu
     entries: [
       { type: 'workspace', path: '.', name: 'Root (workspace)', ide: 'WebStorm' },
       ...repositories.map(r => ({
@@ -274,6 +280,37 @@ async function scanAllDiffs(entries) {
 }
 
 // ============================================================================
+// Managed Repos Logic
+// ============================================================================
+
+/**
+ * Get all managed repos (all repos minus unmanaged)
+ */
+function getManagedRepos(allRepos, unmanagedPaths) {
+  return allRepos.filter(r => !unmanagedPaths.includes(r.path));
+}
+
+/**
+ * Get managed repos that are NOT in entries (shown as "Other managed")
+ */
+function getOtherManagedRepos(managedRepos, entries) {
+  const entryPaths = entries.map(e => e.path);
+  return managedRepos.filter(r => !entryPaths.includes(r.path));
+}
+
+/**
+ * Create a virtual entry for "Other managed" repos submenu
+ */
+function createOtherManagedEntry(otherCount) {
+  return {
+    type: 'other-managed',
+    path: '__other_managed__',
+    name: `(Other managed - ${otherCount} repos)`,
+    ide: null,
+  };
+}
+
+// ============================================================================
 // Launcher Logic
 // ============================================================================
 
@@ -339,7 +376,18 @@ function formatStats(stats) {
 }
 
 function render(state) {
-  const { entries, selectedIndex, mode, claudeStartupMode, modes, claudeStartupModes, diffs, scanning, ides } = state;
+  // Dispatch to appropriate render based on mode
+  if (state.managementMode) {
+    renderManagementMode(state);
+  } else if (state.otherManagedMode) {
+    renderOtherManagedMode(state);
+  } else {
+    renderMainMenu(state);
+  }
+}
+
+function renderMainMenu(state) {
+  const { displayEntries, selectedIndex, mode, claudeStartupMode, modes, claudeStartupModes, diffs, scanning, ides } = state;
 
   const lines = [];
 
@@ -347,25 +395,37 @@ function render(state) {
   lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
 
   // Entry list
-  entries.forEach((entry, i) => {
+  displayEntries.forEach((entry, i) => {
     const isSelected = i === selectedIndex;
     const prefix = isSelected ? `${ANSI.cyan}>${ANSI.reset}` : ' ';
     const num = `${i + 1}.`;
-    const name = isSelected
-      ? `${ANSI.bold}${ANSI.white}${entry.name}${ANSI.reset}`
-      : entry.name;
 
-    // Stats
-    const stats = diffs[entry.path] ? formatStats(diffs[entry.path]) : '';
+    // Special styling for "Other managed" entry
+    const isOtherManaged = entry.type === 'other-managed';
+    let name;
+    if (isOtherManaged) {
+      name = isSelected
+        ? `${ANSI.bold}${ANSI.yellow}${entry.name}${ANSI.reset}`
+        : `${ANSI.yellow}${entry.name}${ANSI.reset}`;
+    } else {
+      name = isSelected
+        ? `${ANSI.bold}${ANSI.white}${entry.name}${ANSI.reset}`
+        : entry.name;
+    }
+
+    // Stats (not for "Other managed")
+    const stats = !isOtherManaged && diffs[entry.path] ? formatStats(diffs[entry.path]) : '';
     const padding = ' '.repeat(Math.max(0, 40 - entry.name.length));
 
-    // IDE suffix for IDE modes
+    // IDE suffix for IDE modes (not for "Other managed")
     let suffix = '';
-    if (mode === 'IDE' || mode === 'Claude + IDE') {
-      const ideName = entry.ide || 'WebStorm';
-      suffix = `${ANSI.dim} (${ideName})${ANSI.reset}`;
-    } else if (mode === 'PowerShell') {
-      suffix = `${ANSI.dim} (PowerShell)${ANSI.reset}`;
+    if (!isOtherManaged) {
+      if (mode === 'IDE' || mode === 'Claude + IDE') {
+        const ideName = entry.ide || 'WebStorm';
+        suffix = `${ANSI.dim} (${ideName})${ANSI.reset}`;
+      } else if (mode === 'PowerShell') {
+        suffix = `${ANSI.dim} (PowerShell)${ANSI.reset}`;
+      }
     }
 
     lines.push(`${prefix} ${num} ${name}${suffix}${padding}${stats}`);
@@ -405,8 +465,8 @@ function render(state) {
 
   // Help
   lines.push('');
-  lines.push(`${ANSI.dim}Tab/w: mode | c: startup mode | Up/Down: nav | Enter: select | 1-${entries.length}: direct | q: quit${ANSI.reset}`);
-  lines.push(`${ANSI.dim}d: scan git diff | a: add repo | r: remove repo${ANSI.reset}`);
+  lines.push(`${ANSI.dim}Tab/w: mode | c: startup mode | Up/Down: nav | Enter: select | 1-${displayEntries.length}: direct | q: quit${ANSI.reset}`);
+  lines.push(`${ANSI.dim}d: scan git diff | m: manage repos${ANSI.reset}`);
 
   // Status
   if (scanning) {
@@ -414,6 +474,72 @@ function render(state) {
   }
 
   // Clear and print
+  process.stdout.write(ANSI.clear);
+  console.log(lines.join('\n'));
+}
+
+function renderOtherManagedMode(state) {
+  const { otherManagedRepos, otherManagedSelectedIndex, mode, diffs, ides } = state;
+
+  const lines = [];
+
+  lines.push(`${ANSI.bold}${ANSI.yellow}Other Managed Repositories:${ANSI.reset}`);
+  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+
+  otherManagedRepos.forEach((repo, i) => {
+    const isSelected = i === otherManagedSelectedIndex;
+    const prefix = isSelected ? `${ANSI.cyan}>${ANSI.reset}` : ' ';
+    const num = `${i + 1}.`;
+    const name = isSelected
+      ? `${ANSI.bold}${ANSI.white}${repo.path}${ANSI.reset}`
+      : repo.path;
+
+    // Stats
+    const stats = diffs[repo.path] ? formatStats(diffs[repo.path]) : '';
+    const padding = ' '.repeat(Math.max(0, 40 - repo.path.length));
+
+    lines.push(`${prefix} ${num} ${name}${padding}${stats}`);
+  });
+
+  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push('');
+  lines.push(`${ANSI.dim}Enter: select | Up/Down: navigate | Esc/q: back${ANSI.reset}`);
+
+  process.stdout.write(ANSI.clear);
+  console.log(lines.join('\n'));
+}
+
+function renderManagementMode(state) {
+  const { allRepos, unmanagedPaths, managementSelectedIndex } = state;
+
+  const lines = [];
+
+  lines.push(`${ANSI.bold}${ANSI.magenta}Manage Repositories:${ANSI.reset}`);
+  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+
+  allRepos.forEach((repo, i) => {
+    const isSelected = i === managementSelectedIndex;
+    const isManaged = !unmanagedPaths.includes(repo.path);
+    const checkbox = isManaged ? `${ANSI.green}[x]${ANSI.reset}` : `${ANSI.gray}[ ]${ANSI.reset}`;
+    const prefix = isSelected ? `${ANSI.cyan}>${ANSI.reset}` : ' ';
+    const num = `${i + 1}.`;
+
+    let name = repo.path;
+    if (isSelected) {
+      name = `${ANSI.bold}${ANSI.white}${repo.path}${ANSI.reset}`;
+    } else if (!isManaged) {
+      name = `${ANSI.gray}${repo.path}${ANSI.reset}`;
+    }
+
+    const hiddenLabel = !isManaged ? `${ANSI.dim} (hidden)${ANSI.reset}` : '';
+
+    lines.push(`${prefix} ${checkbox} ${num} ${name}${hiddenLabel}`);
+  });
+
+  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push('');
+  lines.push(`${ANSI.dim}Space: toggle | Enter: save & exit | Esc/q: cancel${ANSI.reset}`);
+
   process.stdout.write(ANSI.clear);
   console.log(lines.join('\n'));
 }
@@ -476,16 +602,31 @@ automatically provide the correct paths from your workspace root.
   }
 
   // Load config
-  const { config, diffs: savedDiffs } = loadConfig();
+  const { config, repos: reposData, diffs: savedDiffs } = loadConfig();
 
   if (!config.entries || config.entries.length === 0) {
     console.log(`${ANSI.yellow}No entries configured. Run with --setup to configure.${ANSI.reset}`);
     return;
   }
 
+  // Compute managed/other repos
+  const allRepos = reposData.repositories || [];
+  const managedRepos = getManagedRepos(allRepos, config.unmanagedPaths || []);
+  const otherManagedRepos = getOtherManagedRepos(managedRepos, config.entries);
+
+  // Build display entries (entries + "Other managed" if any)
+  const displayEntries = [...config.entries];
+  if (otherManagedRepos.length > 0) {
+    displayEntries.push(createOtherManagedEntry(otherManagedRepos.length));
+  }
+
   // App state
   const state = {
-    entries: config.entries,
+    entries: config.entries,           // Curated entries from config
+    displayEntries: displayEntries,    // What's shown in main menu
+    allRepos: allRepos,                // All repos from repos.json
+    unmanagedPaths: config.unmanagedPaths || [],
+    otherManagedRepos: otherManagedRepos,
     selectedIndex: 0,
     mode: config.modes[0],
     claudeStartupMode: config.claudeStartupModes[0],
@@ -494,6 +635,12 @@ automatically provide the correct paths from your workspace root.
     ides: config.ides || [],
     diffs: savedDiffs || {},
     scanning: false,
+    // Management mode state
+    managementMode: false,
+    managementSelectedIndex: 0,
+    // Other managed submenu state
+    otherManagedMode: false,
+    otherManagedSelectedIndex: 0,
   };
 
   // Set up input
@@ -505,16 +652,153 @@ automatically provide the correct paths from your workspace root.
   // Initial render
   render(state);
 
+  // Helper to refresh display entries and other managed repos
+  function refreshDisplayEntries() {
+    const managedRepos = getManagedRepos(state.allRepos, state.unmanagedPaths);
+    state.otherManagedRepos = getOtherManagedRepos(managedRepos, state.entries);
+
+    // Rebuild display entries
+    state.displayEntries = [...state.entries];
+    if (state.otherManagedRepos.length > 0) {
+      state.displayEntries.push(createOtherManagedEntry(state.otherManagedRepos.length));
+    }
+
+    // Clamp selection index
+    if (state.selectedIndex >= state.displayEntries.length) {
+      state.selectedIndex = Math.max(0, state.displayEntries.length - 1);
+    }
+  }
+
+  // Helper to save config
+  function saveConfig() {
+    const configPaths = getConfigPaths();
+    const existingConfig = loadJson(configPaths.config, {});
+    existingConfig.unmanagedPaths = state.unmanagedPaths;
+    existingConfig.entries = state.entries;
+    saveJson(configPaths.config, existingConfig);
+  }
+
   // Handle keypresses
   process.stdin.on('keypress', async (str, key) => {
     if (!key) return;
 
-    // Ctrl+C
+    // Ctrl+C - always exit
     if (key.ctrl && key.name === 'c') {
       console.log('\nBye!');
       process.exit(0);
     }
 
+    // Management mode keys
+    if (state.managementMode) {
+      switch (key.name) {
+        case 'up':
+          state.managementSelectedIndex = Math.max(0, state.managementSelectedIndex - 1);
+          render(state);
+          break;
+
+        case 'down':
+          state.managementSelectedIndex = Math.min(state.allRepos.length - 1, state.managementSelectedIndex + 1);
+          render(state);
+          break;
+
+        case 'space':
+          // Toggle managed/unmanaged for selected repo
+          const repo = state.allRepos[state.managementSelectedIndex];
+          if (repo) {
+            const idx = state.unmanagedPaths.indexOf(repo.path);
+            if (idx === -1) {
+              // Currently managed -> make unmanaged
+              state.unmanagedPaths.push(repo.path);
+              // Also remove from entries if present
+              state.entries = state.entries.filter(e => e.path !== repo.path);
+            } else {
+              // Currently unmanaged -> make managed
+              state.unmanagedPaths.splice(idx, 1);
+            }
+            refreshDisplayEntries();
+          }
+          render(state);
+          break;
+
+        case 'return':
+          // Save and exit management mode
+          saveConfig();
+          state.managementMode = false;
+          state.managementSelectedIndex = 0;
+          render(state);
+          break;
+
+        case 'escape':
+        case 'q':
+          // Exit without saving (revert changes)
+          // Reload config to discard changes
+          const { config: reloadedConfig } = loadConfig();
+          state.unmanagedPaths = reloadedConfig.unmanagedPaths || [];
+          state.entries = reloadedConfig.entries || [];
+          refreshDisplayEntries();
+          state.managementMode = false;
+          state.managementSelectedIndex = 0;
+          render(state);
+          break;
+
+        default:
+          // Number keys
+          const num = parseInt(str, 10);
+          if (num >= 1 && num <= state.allRepos.length) {
+            state.managementSelectedIndex = num - 1;
+            render(state);
+          }
+      }
+      return;
+    }
+
+    // Other managed submenu keys
+    if (state.otherManagedMode) {
+      switch (key.name) {
+        case 'up':
+          state.otherManagedSelectedIndex = Math.max(0, state.otherManagedSelectedIndex - 1);
+          render(state);
+          break;
+
+        case 'down':
+          state.otherManagedSelectedIndex = Math.min(state.otherManagedRepos.length - 1, state.otherManagedSelectedIndex + 1);
+          render(state);
+          break;
+
+        case 'return':
+          // Launch selected repo with default IDE
+          const selectedRepo = state.otherManagedRepos[state.otherManagedSelectedIndex];
+          if (selectedRepo) {
+            const entry = {
+              type: 'repo',
+              path: selectedRepo.path,
+              name: selectedRepo.path,
+              ide: state.ides[0]?.name || 'WebStorm',
+            };
+            if (process.stdin.isTTY) process.stdin.setRawMode(false);
+            launch(entry, state.mode, state.claudeStartupMode, state.ides);
+          }
+          break;
+
+        case 'escape':
+        case 'q':
+          state.otherManagedMode = false;
+          state.otherManagedSelectedIndex = 0;
+          render(state);
+          break;
+
+        default:
+          // Number keys
+          const num = parseInt(str, 10);
+          if (num >= 1 && num <= state.otherManagedRepos.length) {
+            state.otherManagedSelectedIndex = num - 1;
+            render(state);
+          }
+      }
+      return;
+    }
+
+    // Main menu keys
     switch (key.name) {
       case 'up':
         state.selectedIndex = Math.max(0, state.selectedIndex - 1);
@@ -522,13 +806,21 @@ automatically provide the correct paths from your workspace root.
         break;
 
       case 'down':
-        state.selectedIndex = Math.min(state.entries.length - 1, state.selectedIndex + 1);
+        state.selectedIndex = Math.min(state.displayEntries.length - 1, state.selectedIndex + 1);
         render(state);
         break;
 
       case 'return':
-        if (process.stdin.isTTY) process.stdin.setRawMode(false);
-        launch(state.entries[state.selectedIndex], state.mode, state.claudeStartupMode, state.ides);
+        const selectedEntry = state.displayEntries[state.selectedIndex];
+        if (selectedEntry.type === 'other-managed') {
+          // Enter other managed submenu
+          state.otherManagedMode = true;
+          state.otherManagedSelectedIndex = 0;
+          render(state);
+        } else {
+          if (process.stdin.isTTY) process.stdin.setRawMode(false);
+          launch(selectedEntry, state.mode, state.claudeStartupMode, state.ides);
+        }
         break;
 
       case 'tab':
@@ -552,7 +844,7 @@ automatically provide the correct paths from your workspace root.
       case 'd':
         state.scanning = true;
         render(state);
-        state.diffs = await scanAllDiffs(state.entries);
+        state.diffs = await scanAllDiffs(state.displayEntries.filter(e => e.type !== 'other-managed'));
         // Save diffs
         const paths = getConfigPaths();
         saveJson(paths.diffs, state.diffs);
@@ -560,22 +852,22 @@ automatically provide the correct paths from your workspace root.
         render(state);
         break;
 
-      case 'a':
-        // TODO: implement add repo
-        console.log(`\n${ANSI.yellow}Add repo not yet implemented. Use --setup.${ANSI.reset}`);
-        setTimeout(() => render(state), 1500);
-        break;
-
-      case 'r':
-        // TODO: implement remove repo
-        console.log(`\n${ANSI.yellow}Remove repo not yet implemented. Use --setup.${ANSI.reset}`);
-        setTimeout(() => render(state), 1500);
+      case 'm':
+        // Enter management mode
+        if (state.allRepos.length > 0) {
+          state.managementMode = true;
+          state.managementSelectedIndex = 0;
+          render(state);
+        } else {
+          console.log(`\n${ANSI.yellow}No repos found. Run scan-for-repos first.${ANSI.reset}`);
+          setTimeout(() => render(state), 1500);
+        }
         break;
 
       default:
         // Number keys
         const num = parseInt(str, 10);
-        if (num >= 1 && num <= state.entries.length) {
+        if (num >= 1 && num <= state.displayEntries.length) {
           state.selectedIndex = num - 1;
           render(state);
         }
