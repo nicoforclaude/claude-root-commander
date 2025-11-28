@@ -108,6 +108,8 @@ function getConfigPaths() {
   return {
     repos: path.join(STATE_DIR, 'repos.json'),
     config: path.join(STATE_DIR, 'runner-config.json'),
+    cache: path.join(STATE_DIR, 'cache.json'),
+    // Legacy - for migration
     diffs: path.join(STATE_DIR, 'diffs.json'),
   };
 }
@@ -135,6 +137,24 @@ function saveJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+/**
+ * Save cache data (diffs and remote status with timestamps)
+ */
+function saveCache(state) {
+  const paths = getConfigPaths();
+  const cacheData = {
+    diffs: {
+      lastScan: state.diffsLastScan,
+      data: state.diffs,
+    },
+    remoteStatus: {
+      lastFetch: state.remoteStatusLastFetch,
+      data: state.remoteStatusCache,
+    },
+  };
+  saveJson(paths.cache, cacheData);
+}
+
 function loadConfig() {
   const paths = getConfigPaths();
 
@@ -159,10 +179,27 @@ function loadConfig() {
     }
   }
 
-  // Load diffs.json
-  const diffs = loadJson(paths.diffs, {});
+  // Load cache.json (or migrate from legacy diffs.json)
+  let cache = loadJson(paths.cache);
+  if (!cache) {
+    // Try migrating from legacy diffs.json
+    const legacyDiffs = loadJson(paths.diffs, null);
+    if (legacyDiffs) {
+      cache = {
+        diffs: { lastScan: null, data: legacyDiffs },
+        remoteStatus: { lastFetch: null, data: {} },
+      };
+      saveJson(paths.cache, cache);
+      // Optionally delete legacy file (keep for now)
+    } else {
+      cache = {
+        diffs: { lastScan: null, data: {} },
+        remoteStatus: { lastFetch: null, data: {} },
+      };
+    }
+  }
 
-  return { config, repos: reposData, diffs };
+  return { config, repos: reposData, cache };
 }
 
 function createDefaultConfig(repositories) {
@@ -190,11 +227,16 @@ function createDefaultConfig(repositories) {
  * Ensure entry has required fields (for migration from older configs)
  */
 function normalizeEntry(entry) {
-  return {
+  const normalized = {
     ...entry,
     expanded: entry.expanded ?? false,
     children: (entry.children || []).map(normalizeEntry),
   };
+  // Fix old groups without path - use name as path
+  if (normalized.type === 'group' && !normalized.path && normalized.name) {
+    normalized.path = normalized.name;
+  }
+  return normalized;
 }
 
 /**
@@ -342,13 +384,16 @@ function findEntriesWithPrefix(entries, prefix) {
 
 /**
  * Create a group entry
+ * @param {string} name - Group name (also used as path prefix)
+ * @param {Array} children - Child entries
  */
 function createGroupEntry(name, children = []) {
+  // Use name as path (the prefix folder)
   return {
     type: 'group',
     name,
-    path: null,
-    ide: null,
+    path: name,
+    ide: children[0]?.ide || null,  // inherit IDE from first child
     expanded: true,
     children,
   };
@@ -549,6 +594,83 @@ function getChangedFiles(repoPath) {
       });
   } catch (e) {
     return null;
+  }
+}
+
+/**
+ * Fetch from remote for a repo
+ * Returns true on success, false on error
+ */
+function gitFetch(repoPath) {
+  try {
+    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+    execSync('git fetch', {
+      cwd: fullPath,
+      encoding: 'utf8',
+      timeout: 30000,
+      stdio: 'pipe',
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Get remote status for a repo
+ * Returns { branch, ahead, behind } or null
+ */
+function getRemoteStatus(repoPath) {
+  try {
+    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+    if (!fs.existsSync(path.join(fullPath, '.git'))) {
+      return null;
+    }
+
+    // Get current branch
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: fullPath,
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+
+    // Get ahead/behind counts
+    let ahead = 0, behind = 0;
+    try {
+      const result = execSync(`git rev-list --left-right --count HEAD...@{upstream}`, {
+        cwd: fullPath,
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim();
+      const parts = result.split(/\s+/);
+      ahead = parseInt(parts[0]) || 0;
+      behind = parseInt(parts[1]) || 0;
+    } catch (e) {
+      // No upstream configured
+    }
+
+    return { branch, ahead, behind };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Push a repo to remote
+ * Returns { success, message }
+ */
+function gitPush(repoPath) {
+  try {
+    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+    execSync('git push', {
+      cwd: fullPath,
+      encoding: 'utf8',
+      timeout: 60000,
+      stdio: 'pipe',
+    });
+    return { success: true, message: 'Pushed successfully' };
+  } catch (e) {
+    return { success: false, message: e.message || 'Push failed' };
   }
 }
 
@@ -755,6 +877,8 @@ function render(state) {
     renderEntriesEditMode(state);
   } else if (state.startupModesEditMode) {
     renderStartupModesEdit(state);
+  } else if (state.remoteStatusMode) {
+    renderRemoteStatus(state);
   } else if (state.managementMode) {
     renderManagementMode(state);
   } else if (state.otherManagedMode) {
@@ -783,8 +907,17 @@ function renderFirstRunPrompt(state) {
   console.log(lines.join('\n'));
 }
 
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return null;
+  const ago = Math.floor((Date.now() - timestamp) / 1000);
+  if (ago < 60) return `${ago}s ago`;
+  if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
+  if (ago < 86400) return `${Math.floor(ago / 3600)}h ago`;
+  return `${Math.floor(ago / 86400)}d ago`;
+}
+
 function renderMainMenu(state) {
-  const { flattenedEntries, selectedIndex, mode, claudeStartupMode, diffs, scanning } = state;
+  const { flattenedEntries, selectedIndex, mode, claudeStartupMode, diffs, diffsLastScan, scanning } = state;
 
   const lines = [];
 
@@ -863,11 +996,18 @@ function renderMainMenu(state) {
 
   // Help line (Gray like original)
   lines.push(`${ANSI.gray}Tab/w: mode | c: startup | Up/Down: nav | Enter: select | 1-${flattenedEntries.length}: direct | q: quit${ANSI.reset}`);
-  lines.push(`${ANSI.gray}Left/Right: expand/collapse | d: git diff | Space: files | f: config${ANSI.reset}`);
+  lines.push(`${ANSI.gray}Left/Right: expand/collapse | d: git diff | Space: files | r: remote | f: config${ANSI.reset}`);
 
-  // Status
+  // Git diffs timestamp
+  const hasDiffs = diffs && Object.keys(diffs).length > 0;
   if (scanning) {
     lines.push(`\n${ANSI.yellow}Scanning for changes...${ANSI.reset}`);
+  } else if (diffsLastScan) {
+    lines.push('');
+    lines.push(`${ANSI.dim}Git diffs scanned ${formatTimeAgo(diffsLastScan)}${ANSI.reset}`);
+  } else if (hasDiffs) {
+    lines.push('');
+    lines.push(`${ANSI.dim}Git diffs: scan time unknown${ANSI.reset}`);
   }
 
   // Changed files display
@@ -1215,6 +1355,110 @@ function renderStartupModesEdit(state) {
   console.log(lines.join('\n'));
 }
 
+function renderRemoteStatus(state) {
+  const { remoteStatusRepos, remoteStatusSelectedIndex, remoteStatusFetching, remoteStatusPushing, remoteStatusMessage, remoteStatusLastFetch } = state;
+  const lines = [];
+
+  // Header with last fetch time
+  let headerSuffix = '';
+  const timeAgo = formatTimeAgo(remoteStatusLastFetch);
+  if (timeAgo) {
+    headerSuffix = ` ${ANSI.dim}(fetched ${timeAgo})${ANSI.reset}`;
+  }
+  lines.push(`${ANSI.bold}${ANSI.blue}Remote Status:${ANSI.reset}${headerSuffix}`);
+  lines.push(`${ANSI.dim}${'='.repeat(70)}${ANSI.reset}`);
+
+  if (remoteStatusRepos.length === 0) {
+    lines.push('');
+    lines.push(`${ANSI.dim}No repositories to display${ANSI.reset}`);
+    lines.push('');
+  } else {
+    // Render table (even during fetch/push, show current data)
+    renderRemoteTable(lines, state);
+  }
+
+  lines.push(`${ANSI.dim}${'='.repeat(70)}${ANSI.reset}`);
+
+  // Status message (includes fetching/pushing indicators)
+  if (remoteStatusFetching) {
+    lines.push('');
+    lines.push(`${ANSI.yellow}Fetching from remotes...${ANSI.reset}`);
+  } else if (remoteStatusPushing) {
+    lines.push('');
+    lines.push(`${ANSI.yellow}Pushing to remotes...${ANSI.reset}`);
+  } else if (remoteStatusMessage) {
+    lines.push('');
+    lines.push(`${ANSI.yellow}${remoteStatusMessage}${ANSI.reset}`);
+  }
+
+  // Count repos that can be pushed
+  const pushableCount = remoteStatusRepos.filter(r => r.ahead > 0).length;
+
+  lines.push('');
+  if (pushableCount > 0) {
+    lines.push(`${ANSI.dim}p: push all (${pushableCount} repos) | f: fetch all | Esc/q: back${ANSI.reset}`);
+  } else {
+    lines.push(`${ANSI.dim}f: fetch all | Esc/q: back${ANSI.reset}`);
+  }
+
+  process.stdout.write(ANSI.clear);
+  console.log(lines.join('\n'));
+}
+
+function renderRemoteTable(lines, state) {
+  const { remoteStatusRepos, remoteStatusSelectedIndex } = state;
+
+  // Calculate column widths for alignment
+  const maxNameLen = Math.min(35, Math.max(...remoteStatusRepos.map(r => r.name.length), 4));
+  const maxBranchLen = Math.min(15, Math.max(...remoteStatusRepos.map(r => (r.branch || '').length), 6));
+
+  // Column headers
+  const repoHeader = 'REPO'.padEnd(maxNameLen);
+  const branchHeader = 'BRANCH'.padEnd(maxBranchLen);
+  lines.push(`  ${ANSI.dim}${repoHeader}  ${branchHeader}  SYNC      CHANGES${ANSI.reset}`);
+
+  remoteStatusRepos.forEach((repo, i) => {
+    const isSelected = i === remoteStatusSelectedIndex;
+    const prefix = isSelected ? `${ANSI.cyan}>${ANSI.reset}` : ' ';
+
+    // Name column
+    let displayName = repo.name.length > 35 ? repo.name.slice(-35) : repo.name;
+    displayName = displayName.padEnd(maxNameLen);
+
+    const nameColor = isSelected
+      ? `${ANSI.bold}${ANSI.white}`
+      : ANSI.yellow;
+
+    // Branch column
+    const branch = (repo.branch || 'unknown').padEnd(maxBranchLen);
+
+    // Ahead/behind indicators - show = for in sync (clearer than checkmark)
+    let syncStatus = '';
+    let syncRawLen = 1; // length without ANSI codes
+    if (repo.ahead > 0 || repo.behind > 0) {
+      if (repo.ahead > 0) {
+        syncStatus += `${ANSI.green}↑${repo.ahead}${ANSI.reset}`;
+        syncRawLen += 1 + String(repo.ahead).length;
+      }
+      if (repo.behind > 0) {
+        syncStatus += `${ANSI.red}↓${repo.behind}${ANSI.reset}`;
+        syncRawLen += 1 + String(repo.behind).length;
+      }
+    } else {
+      syncStatus = `${ANSI.dim}=${ANSI.reset}`;  // = means in sync
+    }
+    const syncPadding = ' '.repeat(Math.max(0, 10 - syncRawLen));
+
+    // Local changes
+    let changesDisplay = '';
+    if (repo.changes) {
+      changesDisplay = `${ANSI.green}+${repo.changes.added}${ANSI.reset}/${ANSI.yellow}-${repo.changes.removed}${ANSI.reset}`;
+    }
+
+    lines.push(`${prefix} ${nameColor}${displayName}${ANSI.reset}  ${ANSI.dim}${branch}${ANSI.reset}  ${syncStatus}${syncPadding}${changesDisplay}`);
+  });
+}
+
 // ============================================================================
 // Main Application
 // ============================================================================
@@ -1274,7 +1518,7 @@ automatically provide the correct paths from your workspace root.
   }
 
   // Load config
-  const { config, repos: reposData, diffs: savedDiffs } = loadConfig();
+  const { config, repos: reposData, cache } = loadConfig();
 
   if (!config.entries || config.entries.length === 0) {
     console.log(`${ANSI.yellow}No entries configured. Run with --setup to configure.${ANSI.reset}`);
@@ -1311,7 +1555,9 @@ automatically provide the correct paths from your workspace root.
     modes: config.modes,
     claudeStartupModes: config.claudeStartupModes,
     ides: config.ides || [],
-    diffs: savedDiffs || {},
+    // Cache-backed state
+    diffs: cache.diffs.data || {},
+    diffsLastScan: cache.diffs.lastScan,
     scanning: false,
     // Changed files display state
     showChangedFiles: false,       // toggle with 'l' key
@@ -1348,6 +1594,15 @@ automatically provide the correct paths from your workspace root.
     startupModesEditMode: false,         // false = not editing, 'list' = list view, 'edit' = editing name
     startupModesEditSelectedIndex: 0,
     startupModesEditBuffer: '',          // current text input for new/edit mode
+    // Remote status mode state (cache-backed)
+    remoteStatusMode: false,
+    remoteStatusSelectedIndex: 0,
+    remoteStatusRepos: [],               // flat list of { path, name, branch, ahead, behind, changes }
+    remoteStatusFetching: false,
+    remoteStatusPushing: false,
+    remoteStatusMessage: null,           // status message to display
+    remoteStatusLastFetch: cache.remoteStatus.lastFetch,  // timestamp from cache
+    remoteStatusCache: cache.remoteStatus.data || {},     // cached remote status by path
     // First-run prompt state
     firstRunPrompt: false,
   };
@@ -1906,6 +2161,120 @@ automatically provide the correct paths from your workspace root.
       return;
     }
 
+    // Remote status mode keys
+    if (state.remoteStatusMode) {
+      switch (key.name) {
+        case 'up':
+          state.remoteStatusSelectedIndex = Math.max(0, state.remoteStatusSelectedIndex - 1);
+          render(state);
+          break;
+
+        case 'down':
+          state.remoteStatusSelectedIndex = Math.min(state.remoteStatusRepos.length - 1, state.remoteStatusSelectedIndex + 1);
+          render(state);
+          break;
+
+        case 'escape':
+        case 'q':
+          // Exit remote status mode
+          state.remoteStatusMode = false;
+          state.remoteStatusSelectedIndex = 0;
+          state.remoteStatusRepos = [];
+          state.remoteStatusMessage = null;
+          render(state);
+          break;
+
+        default:
+          if (str === 'f') {
+            // Fetch all repos
+            state.remoteStatusFetching = true;
+            state.remoteStatusMessage = null;
+            render(state);
+
+            // Fetch each repo sequentially
+            let fetchedCount = 0;
+            for (const repo of state.remoteStatusRepos) {
+              const success = gitFetch(repo.path);
+              if (success) fetchedCount++;
+            }
+
+            // Refresh status after fetch and update cache
+            for (const repo of state.remoteStatusRepos) {
+              const status = getRemoteStatus(repo.path);
+              if (status) {
+                repo.branch = status.branch;
+                repo.ahead = status.ahead;
+                repo.behind = status.behind;
+              }
+              // Refresh changes too
+              const stats = getGitStats(repo.path);
+              repo.changes = stats;
+              // Update cache
+              state.remoteStatusCache[repo.path] = {
+                branch: repo.branch,
+                ahead: repo.ahead,
+                behind: repo.behind,
+              };
+            }
+
+            state.remoteStatusFetching = false;
+            state.remoteStatusLastFetch = Date.now();
+            saveCache(state);
+            state.remoteStatusMessage = `Fetched ${fetchedCount}/${state.remoteStatusRepos.length} repos`;
+            render(state);
+
+            // Clear message after delay
+            setTimeout(() => {
+              state.remoteStatusMessage = null;
+              if (state.remoteStatusMode) render(state);
+            }, 2000);
+          } else if (str === 'p') {
+            // Push all repos that have commits ahead
+            const reposToPush = state.remoteStatusRepos.filter(r => r.ahead > 0);
+            if (reposToPush.length === 0) {
+              state.remoteStatusMessage = 'No repos with commits to push';
+              render(state);
+              setTimeout(() => {
+                state.remoteStatusMessage = null;
+                if (state.remoteStatusMode) render(state);
+              }, 2000);
+              return;
+            }
+
+            state.remoteStatusPushing = true;
+            state.remoteStatusMessage = null;
+            render(state);
+
+            let pushedCount = 0;
+            const errors = [];
+            for (const repo of reposToPush) {
+              const result = gitPush(repo.path);
+              if (result.success) {
+                pushedCount++;
+                repo.ahead = 0; // Assume push succeeded
+              } else {
+                errors.push(`${repo.name}: ${result.message}`);
+              }
+            }
+
+            state.remoteStatusPushing = false;
+            if (errors.length > 0) {
+              state.remoteStatusMessage = `Pushed ${pushedCount}/${reposToPush.length}. Errors: ${errors.length}`;
+            } else {
+              state.remoteStatusMessage = `Pushed ${pushedCount} repos successfully`;
+            }
+            render(state);
+
+            // Clear message after delay
+            setTimeout(() => {
+              state.remoteStatusMessage = null;
+              if (state.remoteStatusMode) render(state);
+            }, 3000);
+          }
+      }
+      return;
+    }
+
     // Entries edit mode keys
     if (state.entriesEditMode) {
       const flatEdit = flattenEntries(state.entries);
@@ -2135,9 +2504,15 @@ automatically provide the correct paths from your workspace root.
           state.otherManagedMode = true;
           state.otherManagedSelectedIndex = 0;
           render(state);
-        } else {
+        } else if (selectedItem.entry.path) {
+          // Has path - launch
           if (process.stdin.isTTY) process.stdin.setRawMode(false);
           launch(selectedItem.entry, state.mode, state.claudeStartupMode, state.ides);
+        } else if (selectedItem.entry.children && selectedItem.entry.children.length > 0) {
+          // No path but has children - toggle expand/collapse
+          selectedItem.entry.expanded = !selectedItem.entry.expanded;
+          refreshFlattenedEntries();
+          render(state);
         }
         break;
 
@@ -2167,9 +2542,9 @@ automatically provide the correct paths from your workspace root.
         state.diffs = await scanAllDiffs(allEntries);
         // Compute aggregate stats for groups
         computeGroupStats(state.entries, state.diffs);
-        // Save diffs
-        const paths = getConfigPaths();
-        saveJson(paths.diffs, state.diffs);
+        // Save to cache with timestamp
+        state.diffsLastScan = Date.now();
+        saveCache(state);
         state.scanning = false;
         render(state);
         break;
@@ -2179,6 +2554,43 @@ automatically provide the correct paths from your workspace root.
         state.configMode = true;
         state.configSelectedIndex = 0;
         render(state);
+        break;
+
+      case 'r':
+        // Enter remote status mode - show local status immediately (no fetch)
+        state.remoteStatusMode = true;
+        state.remoteStatusSelectedIndex = 0;
+        state.remoteStatusFetching = false;
+        state.remoteStatusMessage = null;
+
+        // Build list of all managed repos (flat, no nesting) with LOCAL status only
+        const managedReposForRemote = getManagedRepos(state.allRepos, state.unmanagedPaths);
+        const remoteRepos = [];
+
+        for (const repo of managedReposForRemote) {
+          // Get local status only (no fetch) - ahead/behind will be stale until 'f' pressed
+          const status = getRemoteStatus(repo.path);
+          const stats = getGitStats(repo.path);
+
+          remoteRepos.push({
+            path: repo.path,
+            name: repo.path,
+            branch: status?.branch || 'unknown',
+            ahead: status?.ahead || 0,
+            behind: status?.behind || 0,
+            changes: stats,
+          });
+        }
+
+        state.remoteStatusRepos = remoteRepos;
+        state.remoteStatusMessage = `${remoteRepos.length} repos (press f to fetch)`;
+        render(state);
+
+        // Clear message after delay
+        setTimeout(() => {
+          state.remoteStatusMessage = null;
+          if (state.remoteStatusMode) render(state);
+        }, 2000);
         break;
 
       case 'space':

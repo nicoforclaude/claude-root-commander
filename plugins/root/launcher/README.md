@@ -38,6 +38,7 @@ The wrapper scripts (`launcher.ps1` / `launcher.sh`) automatically compute paths
 | c | Cycle Claude startup mode (none → startup check → /commit) |
 | d | Scan git diff for all repos (shows +/- stats inline) |
 | Space | Toggle changed files list for selected entry |
+| r | Open Remote Status view (fetch, push, sync status) |
 | f | Open config menu |
 | q | Quit |
 
@@ -87,6 +88,27 @@ Options:
 | Enter | Save changes and exit |
 | Esc/q | Cancel (discard changes) |
 
+### Remote Status Mode (press 'r')
+
+Shows all managed repositories with git remote sync status. On entry, displays local status immediately (no network call). Press 'f' to fetch from remotes.
+
+| Key | Action |
+|-----|--------|
+| Up/Down | Navigate repos |
+| f | Fetch all repos from remotes (updates sync status) |
+| p | Push all repos with local commits (↑ indicator) |
+| Esc/q | Return to main menu |
+
+**Display columns:**
+| Column | Description |
+|--------|-------------|
+| REPO | Repository path |
+| BRANCH | Current branch name |
+| SYNC | `↑N` commits ahead (green), `↓N` behind (red), `=` in sync |
+| CHANGES | Local uncommitted changes `+added/-removed` |
+
+**Header shows:** Last fetch timestamp (e.g., "fetched 5m ago")
+
 ## Modes
 
 - **Claude** - Run Claude in the selected repo
@@ -110,7 +132,9 @@ Config stored in: `{CLAUDE_PLUGINS_ROOT}/nicoforclaude/root/`
 
 - `repos.json` - List of discovered repositories (from scan-for-repos)
 - `runner-config.json` - User configuration (entries, IDEs, preferences, unmanagedPaths)
-- `diffs.json` - Cached git diff stats
+- `cache.json` - Cached data with timestamps:
+  - `diffs` - Git diff stats (last scan time shown in main menu header)
+  - `remoteStatus` - Remote sync status (last fetch time shown in remote view)
 
 ## Managed vs Unmanaged Repos
 
