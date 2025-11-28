@@ -9,7 +9,7 @@ You are updating the CLAUDE.md file in the workspace root from the template.
 
 1. **Check what changes would occur**:
    - Source: `.claude/templates/root_claude.md`
-   - Destination: `CLAUDE.md` (in workspace root, typically `C:\KolyaRepositories\CLAUDE.md`)
+   - Destination: `CLAUDE.md` (in workspace root)
    - Use git diff or compare the files to show what would change
    - Use powershell command like: `git diff --no-index CLAUDE.md .claude\templates\root_claude.md` or similar comparison
 
@@ -46,16 +46,16 @@ Running update script...
 Quasi-variable needs to be filled:
 CLAUDE_MAIN_WORKSPACE_ROOT = current workspace root path
 
-Enter value for CLAUDE_MAIN_WORKSPACE_ROOT (default: C:\KolyaRepositories):
+Enter value for CLAUDE_MAIN_WORKSPACE_ROOT (default: <detected-workspace-root>):
 [User presses Enter to accept default]
 
 ✓ CLAUDE.md updated successfully!
 
 Quasi-variables set:
-  CLAUDE_MAIN_WORKSPACE_ROOT = 'C:\KolyaRepositories'
+  CLAUDE_MAIN_WORKSPACE_ROOT = '<workspace-root>'
 
 Derived quasi-variables (automatically calculated):
-  CLAUDE_PLUGINS_ROOT = 'C:\KolyaRepositories\.localData\claudePlugins'
+  CLAUDE_PLUGINS_ROOT = '<workspace-root>\.localData\claude-plugins'
 ```
 
 ## Important Notes

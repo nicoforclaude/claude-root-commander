@@ -10,7 +10,7 @@ List managed Git repositories (defined in `claude_root_commander.md` at workspac
 ## Step 2: Check Repository Status
 
 For each managed repository:
-1. Read the repository paths from `C:\KolyaRepositories\claude_root_commander.md`
+1. Read the repository paths from `claude_root_commander.md` at workspace root
 2. Display as columns:
    - Repository path
    - Current branch name
@@ -27,16 +27,9 @@ Example table format:
 ```
 Repository           Branch        Changes      Lines         Files          Topics
 -------------------------------------------------------------------------------------
-chessarms/tsmain     main          +1 ~2 -5     +4 ~9 -569    8 (.md, .json) git,startup
-chessarms/calc       dev-preview   -2           -23           2 (.md)        git cmds
+org/project-a        main          +1 ~2 -5     +4 ~9 -569    8 (.md, .json) git,startup
+org/project-b        dev-preview   -2           -23           2 (.md)        api changes
 .claude              main          ~1           +2 -1         1 (.md)        repo status
-chessarms/fishwrap   main          -            -             0              -
-nomadsync-io/tsmain  main          -            -             0              -
-```
-Example table format:
-```
-Repository           Branch        Changes      Lines         Files          Topics
--------------------------------------------------------------------------------------
-chessarms/calc       dev-preview   -2           -23           2 (.md)        git cmds
-chessarms/fishwrap   main          -            -             0              -
+team/shared-lib      main          -            -             0              -
+personal/tools       main          -            -             0              -
 ```

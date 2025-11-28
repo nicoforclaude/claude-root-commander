@@ -31,10 +31,18 @@ Update project-level CLAUDE.md files from the template with interactive selectio
 **`/root:root_claude:update_root_claude_md`**
 Update root CLAUDE.md from the template with diff preview.
 
-### Runner Scripts
+### Launcher
 
-**`/root:runner:prepare_runner_script`**
-Prepare PowerShell runner scripts for opening projects in IDEs (WebStorm/IntelliJ).
+**`/root:launcher`**
+Setup or migrate the Claude Root Launcher. Guides through first-time setup, migration from existing scripts, and IDE configuration.
+
+**Node.js Launcher** (standalone tool)
+Interactive menu for selecting repos and opening with Claude/IDEs:
+```bash
+node plugins/root/launcher/launcher.js
+```
+
+Controls: Up/Down to navigate, Tab to switch mode (Claude/IDE/Claude+IDE/PowerShell), `d` to scan git diffs, Enter to select.
 
 ## Usage
 
@@ -48,5 +56,5 @@ Example:
 ## Requirements
 
 - Claude Code
-- PowerShell (for runner scripts)
+- Node.js (for launcher)
 - Git (for git operations)
