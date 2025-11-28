@@ -2008,7 +2008,7 @@ automatically provide the correct paths from your workspace root.
           break;
 
         case 'down':
-          state.configSelectedIndex = Math.min(3, state.configSelectedIndex + 1);
+          state.configSelectedIndex = Math.min(4, state.configSelectedIndex + 1);
           render(state);
           break;
 
