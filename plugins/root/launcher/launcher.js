@@ -783,7 +783,13 @@ function renderMainMenu(state) {
       }
     }
 
-    lines.push(`${prefix}${num} ${expandIndicator}${indent}${nameColor}${displayName}${ANSI.reset}${stats}`);
+    // IDE suffix - show on selected item when in IDE modes
+    let ideSuffix = '';
+    if (isSelected && !isOtherManaged && (mode === 'IDE' || mode === 'Claude + IDE')) {
+      ideSuffix = ` ${ANSI.gray}(${entry.ide || 'WebStorm'})${ANSI.reset}`;
+    }
+
+    lines.push(`${prefix}${num} ${expandIndicator}${indent}${nameColor}${displayName}${ANSI.reset}${ideSuffix}${stats}`);
   });
 
   lines.push(`${ANSI.cyan}${'='.repeat(40)}${ANSI.reset}`);
