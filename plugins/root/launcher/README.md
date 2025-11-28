@@ -37,6 +37,7 @@ The wrapper scripts (`launcher.ps1` / `launcher.sh`) automatically compute paths
 | Tab / w | Cycle mode (Claude → IDE → Claude+IDE → PowerShell) |
 | c | Cycle Claude startup mode (none → startup check → /commit) |
 | d | Scan git diff for all repos (shows +/- stats inline) |
+| Space | Toggle changed files list for selected entry |
 | f | Open config menu |
 | q | Quit |
 
@@ -47,6 +48,7 @@ Options:
 2. **Manage repositories** - Show/hide repos from main menu
 3. **Scan for repositories** - Find all git repos in workspace
 4. **Create desktop shortcut** - Add launcher shortcut to desktop
+5. **Edit startup modes** - Configure Claude startup commands
 
 ### Edit Entries Mode
 
@@ -73,6 +75,18 @@ Options:
 | Enter | Save changes and exit |
 | Esc/q | Cancel (discard changes) |
 
+### Edit Startup Modes
+
+| Key | Action |
+|-----|--------|
+| Up/Down | Navigate |
+| a | Add new startup mode |
+| x | Remove mode (cannot remove last) |
+| e | Edit mode name inline |
+| u/d | Move mode up/down |
+| Enter | Save changes and exit |
+| Esc/q | Cancel (discard changes) |
+
 ## Modes
 
 - **Claude** - Run Claude in the selected repo
@@ -82,9 +96,13 @@ Options:
 
 ## Claude Startup Modes
 
+Default modes (can be customized via Config → Edit startup modes):
+
 - **none** - Just run `claude`
-- **with startup check** - Run `claude /startup_check`
-- **with /commit** - Run `claude /commit`
+- **with /git:startup** - Run `claude /git:startup`
+- **with /git:commit** - Run `claude /git:commit`
+
+Mode format: `with <command>` extracts `<command>` as Claude argument.
 
 ## Configuration
 

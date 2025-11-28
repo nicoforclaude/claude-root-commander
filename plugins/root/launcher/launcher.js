@@ -169,7 +169,7 @@ function createDefaultConfig(repositories) {
   return {
     version: '1.1.0',
     modes: ['Claude', 'IDE', 'Claude + IDE', 'PowerShell'],
-    claudeStartupModes: ['none', 'with startup check', 'with /commit'],
+    claudeStartupModes: ['none', 'with /git:startup', 'with /git:commit'],
     ides: detectIDEs(),
     unmanagedPaths: [], // Repos excluded from main menu
     entries: [
@@ -397,6 +397,21 @@ function addEntryToParent(entries, entry, targetParent) {
 }
 
 // ============================================================================
+// Startup Mode Parsing
+// ============================================================================
+
+/**
+ * Parse startup mode string to extract command
+ * 'none' → null
+ * 'with /git:commit' → '/git:commit'
+ */
+function parseStartupMode(mode) {
+  if (mode === 'none') return null;
+  const match = mode.match(/^with\s+(.+)$/);
+  return match ? match[1] : null;
+}
+
+// ============================================================================
 // IDE Detection
 // ============================================================================
 
@@ -498,6 +513,43 @@ async function scanAllDiffs(entries) {
     }
   }
   return diffs;
+}
+
+/**
+ * Get list of changed files for a repo
+ * Returns array of { file, status } or null
+ */
+function getChangedFiles(repoPath) {
+  try {
+    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+    if (!fs.existsSync(path.join(fullPath, '.git'))) {
+      return null;
+    }
+
+    // Get both staged and unstaged changes
+    const result = execSync('git status --porcelain', {
+      cwd: fullPath,
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+
+    if (!result || !result.trim()) return null;
+
+    return result.split('\n')
+      .filter(line => line.length >= 3) // Skip empty lines
+      .map(line => {
+        // Git porcelain format: "XY filename"
+        // X = index status, Y = worktree status, then space, then filename
+        // Examples: " M file.txt", "?? file.txt", "MM file.txt", "A  file.txt"
+        line = line.replace(/\r$/, '');
+        // Status is first 2 chars, filename starts after space at index 2
+        const status = line.slice(0, 2);
+        const file = line.slice(3); // Skip "XY "
+        return { status, file };
+      });
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
@@ -659,14 +711,12 @@ function launch(entry, mode, claudeStartupMode, ides) {
 
   // Claude mode
   const claudeArgs = [];
-  let msg = 'Running Claude';
+  const command = parseStartupMode(claudeStartupMode);
 
-  if (claudeStartupMode === 'with startup check') {
-    claudeArgs.push('/startup_check');
-    msg = 'Running Claude with /startup_check';
-  } else if (claudeStartupMode === 'with /commit') {
-    claudeArgs.push('/commit');
-    msg = 'Running Claude with /commit';
+  let msg = 'Running Claude';
+  if (command) {
+    claudeArgs.push(command);
+    msg = `Running Claude with ${command}`;
   }
 
   console.log(`\n${ANSI.green}${msg}...${ANSI.reset}`);
@@ -703,6 +753,8 @@ function render(state) {
     renderEditName(state);
   } else if (state.entriesEditMode) {
     renderEntriesEditMode(state);
+  } else if (state.startupModesEditMode) {
+    renderStartupModesEdit(state);
   } else if (state.managementMode) {
     renderManagementMode(state);
   } else if (state.otherManagedMode) {
@@ -811,11 +863,26 @@ function renderMainMenu(state) {
 
   // Help line (Gray like original)
   lines.push(`${ANSI.gray}Tab/w: mode | c: startup | Up/Down: nav | Enter: select | 1-${flattenedEntries.length}: direct | q: quit${ANSI.reset}`);
-  lines.push(`${ANSI.gray}Left/Right: expand/collapse | d: git diff | f: config${ANSI.reset}`);
+  lines.push(`${ANSI.gray}Left/Right: expand/collapse | d: git diff | Space: files | f: config${ANSI.reset}`);
 
   // Status
   if (scanning) {
     lines.push(`\n${ANSI.yellow}Scanning for changes...${ANSI.reset}`);
+  }
+
+  // Changed files display
+  if (state.showChangedFiles && state.changedFiles && state.changedFiles.length > 0) {
+    lines.push('');
+    lines.push(`${ANSI.cyan}Changed files in ${state.changedFilesPath}:${ANSI.reset}`);
+    state.changedFiles.forEach(({ status, file }) => {
+      const statusColor = status.includes('?') ? ANSI.green :
+                          status.includes('D') ? ANSI.red :
+                          status.includes('A') ? ANSI.green :
+                          ANSI.yellow;
+      // Status is 2 chars from git, pad to ensure alignment
+      const paddedStatus = status.padEnd(2);
+      lines.push(`  ${statusColor}${paddedStatus}${ANSI.reset} ${file}`);
+    });
   }
 
   // Clear and print
@@ -897,6 +964,7 @@ function renderConfigMenu(state) {
     { key: '2', name: 'Manage repositories', description: 'Show/hide repos from main menu' },
     { key: '3', name: 'Scan for repositories', description: 'Find all git repos in workspace' },
     { key: '4', name: 'Create desktop shortcut', description: 'Add launcher to desktop' },
+    { key: '5', name: 'Edit startup modes', description: 'Configure Claude startup commands' },
   ];
 
   const lines = [];
@@ -1106,6 +1174,47 @@ function renderEntriesEditMode(state) {
   console.log(lines.join('\n'));
 }
 
+function renderStartupModesEdit(state) {
+  const { claudeStartupModes, startupModesEditSelectedIndex, startupModesEditBuffer, startupModesEditMode: editingName } = state;
+  const lines = [];
+
+  lines.push(`${ANSI.bold}${ANSI.green}Edit Startup Modes:${ANSI.reset}`);
+  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+
+  if (editingName) {
+    // Inline editing mode
+    lines.push('');
+    lines.push(`Editing mode name:`);
+    lines.push(`${ANSI.cyan}${startupModesEditBuffer}${ANSI.reset}${ANSI.bold}_${ANSI.reset}`);
+    lines.push('');
+    lines.push(`${ANSI.dim}Type to edit | Enter: save | Esc: cancel${ANSI.reset}`);
+  } else {
+    // List view
+    if (claudeStartupModes.length === 0) {
+      lines.push(`${ANSI.dim}  No startup modes configured${ANSI.reset}`);
+    } else {
+      claudeStartupModes.forEach((mode, i) => {
+        const isSelected = i === startupModesEditSelectedIndex;
+        const prefix = isSelected ? `${ANSI.cyan}>${ANSI.reset}` : ' ';
+        const name = isSelected
+          ? `${ANSI.bold}${ANSI.white}${mode}${ANSI.reset}`
+          : mode;
+        const command = parseStartupMode(mode);
+        const cmdDisplay = command ? `${ANSI.dim} → ${command}${ANSI.reset}` : `${ANSI.dim} → (no command)${ANSI.reset}`;
+        lines.push(`${prefix} ${i + 1}. ${name}${cmdDisplay}`);
+      });
+    }
+
+    lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+    lines.push('');
+    lines.push(`${ANSI.dim}a: add | x: remove | e: edit | u/d: move${ANSI.reset}`);
+    lines.push(`${ANSI.dim}Enter: save | Esc/q: cancel${ANSI.reset}`);
+  }
+
+  process.stdout.write(ANSI.clear);
+  console.log(lines.join('\n'));
+}
+
 // ============================================================================
 // Main Application
 // ============================================================================
@@ -1204,6 +1313,10 @@ automatically provide the correct paths from your workspace root.
     ides: config.ides || [],
     diffs: savedDiffs || {},
     scanning: false,
+    // Changed files display state
+    showChangedFiles: false,       // toggle with 'l' key
+    changedFilesPath: null,        // path of entry showing files
+    changedFiles: null,            // array of { status, file }
     // Config menu state
     configMode: false,
     configSelectedIndex: 0,
@@ -1231,6 +1344,10 @@ automatically provide the correct paths from your workspace root.
     // Other managed submenu state
     otherManagedMode: false,
     otherManagedSelectedIndex: 0,
+    // Startup modes edit state
+    startupModesEditMode: false,         // false = not editing, 'list' = list view, 'edit' = editing name
+    startupModesEditSelectedIndex: 0,
+    startupModesEditBuffer: '',          // current text input for new/edit mode
     // First-run prompt state
     firstRunPrompt: false,
   };
@@ -1647,6 +1764,12 @@ automatically provide the correct paths from your workspace root.
                 render(state);
               }, 2000);
             }
+          } else if (state.configSelectedIndex === 4) {
+            // Edit startup modes
+            state.configMode = false;
+            state.startupModesEditMode = 'list';
+            state.startupModesEditSelectedIndex = 0;
+            render(state);
           }
           break;
 
@@ -1671,7 +1794,114 @@ automatically provide the correct paths from your workspace root.
           } else if (str === '4') {
             state.configSelectedIndex = 3;
             render(state);
+          } else if (str === '5') {
+            state.configSelectedIndex = 4;
+            render(state);
           }
+      }
+      return;
+    }
+
+    // Startup modes edit mode keys
+    if (state.startupModesEditMode) {
+      if (state.startupModesEditMode === 'edit') {
+        // Editing mode name inline
+        if (key.name === 'return') {
+          // Save edited mode
+          const trimmed = state.startupModesEditBuffer.trim();
+          if (trimmed) {
+            state.claudeStartupModes[state.startupModesEditSelectedIndex] = trimmed;
+          }
+          state.startupModesEditMode = 'list';
+          state.startupModesEditBuffer = '';
+          render(state);
+        } else if (key.name === 'escape') {
+          // Cancel editing
+          state.startupModesEditMode = 'list';
+          state.startupModesEditBuffer = '';
+          render(state);
+        } else if (key.name === 'backspace') {
+          state.startupModesEditBuffer = state.startupModesEditBuffer.slice(0, -1);
+          render(state);
+        } else if (str && str.length === 1 && !key.ctrl && !key.meta) {
+          state.startupModesEditBuffer += str;
+          render(state);
+        }
+      } else {
+        // List view mode
+        switch (key.name) {
+          case 'up':
+            state.startupModesEditSelectedIndex = Math.max(0, state.startupModesEditSelectedIndex - 1);
+            render(state);
+            break;
+
+          case 'down':
+            state.startupModesEditSelectedIndex = Math.min(state.claudeStartupModes.length - 1, state.startupModesEditSelectedIndex + 1);
+            render(state);
+            break;
+
+          case 'return':
+            // Save and exit
+            config.claudeStartupModes = state.claudeStartupModes;
+            saveConfig(config);
+            // Reset current mode if it's no longer valid
+            if (!state.claudeStartupModes.includes(state.claudeStartupMode)) {
+              state.claudeStartupMode = state.claudeStartupModes[0] || 'none';
+            }
+            state.startupModesEditMode = false;
+            state.startupModesEditSelectedIndex = 0;
+            render(state);
+            break;
+
+          case 'escape':
+          case 'q':
+            // Cancel - reload from config
+            state.claudeStartupModes = [...config.claudeStartupModes];
+            state.startupModesEditMode = false;
+            state.startupModesEditSelectedIndex = 0;
+            render(state);
+            break;
+
+          default:
+            if (str === 'a') {
+              // Add new mode
+              state.claudeStartupModes.push('with /new-command');
+              state.startupModesEditSelectedIndex = state.claudeStartupModes.length - 1;
+              state.startupModesEditBuffer = 'with /new-command';
+              state.startupModesEditMode = 'edit';
+              render(state);
+            } else if (str === 'x') {
+              // Remove current mode
+              if (state.claudeStartupModes.length > 1) {
+                state.claudeStartupModes.splice(state.startupModesEditSelectedIndex, 1);
+                state.startupModesEditSelectedIndex = Math.min(state.startupModesEditSelectedIndex, state.claudeStartupModes.length - 1);
+                render(state);
+              }
+            } else if (str === 'e') {
+              // Edit current mode
+              state.startupModesEditBuffer = state.claudeStartupModes[state.startupModesEditSelectedIndex];
+              state.startupModesEditMode = 'edit';
+              render(state);
+            } else if (str === 'u') {
+              // Move up
+              const idx = state.startupModesEditSelectedIndex;
+              if (idx > 0) {
+                [state.claudeStartupModes[idx], state.claudeStartupModes[idx - 1]] =
+                  [state.claudeStartupModes[idx - 1], state.claudeStartupModes[idx]];
+                state.startupModesEditSelectedIndex = idx - 1;
+                render(state);
+              }
+            } else if (str === 'd') {
+              // Move down
+              const idx = state.startupModesEditSelectedIndex;
+              if (idx < state.claudeStartupModes.length - 1) {
+                [state.claudeStartupModes[idx], state.claudeStartupModes[idx + 1]] =
+                  [state.claudeStartupModes[idx + 1], state.claudeStartupModes[idx]];
+                state.startupModesEditSelectedIndex = idx + 1;
+                render(state);
+              }
+            }
+        }
       }
       return;
     }
@@ -1853,11 +2083,19 @@ automatically provide the correct paths from your workspace root.
     switch (key.name) {
       case 'up':
         state.selectedIndex = Math.max(0, state.selectedIndex - 1);
+        // Hide changed files on navigation
+        state.showChangedFiles = false;
+        state.changedFiles = null;
+        state.changedFilesPath = null;
         render(state);
         break;
 
       case 'down':
         state.selectedIndex = Math.min(state.flattenedEntries.length - 1, state.selectedIndex + 1);
+        // Hide changed files on navigation
+        state.showChangedFiles = false;
+        state.changedFiles = null;
+        state.changedFilesPath = null;
         render(state);
         break;
 
@@ -1941,6 +2179,37 @@ automatically provide the correct paths from your workspace root.
         state.configMode = true;
         state.configSelectedIndex = 0;
         render(state);
+        break;
+
+      case 'space':
+        // Toggle changed files display
+        const currentEntry = state.flattenedEntries[state.selectedIndex];
+        if (currentEntry && currentEntry.entry.path) {
+          const entryPath = currentEntry.entry.path;
+          // If already showing files for this entry, hide them
+          if (state.showChangedFiles && state.changedFilesPath === entryPath) {
+            state.showChangedFiles = false;
+            state.changedFiles = null;
+            state.changedFilesPath = null;
+          } else {
+            // Check if entry has changes
+            const diffKey = entryPath;
+            if (state.diffs[diffKey]) {
+              // Fetch changed files
+              const files = getChangedFiles(entryPath);
+              if (files && files.length > 0) {
+                state.showChangedFiles = true;
+                state.changedFiles = files;
+                state.changedFilesPath = entryPath;
+              } else {
+                state.showChangedFiles = false;
+                state.changedFiles = null;
+                state.changedFilesPath = null;
+              }
+            }
+          }
+          render(state);
+        }
         break;
 
       default:
