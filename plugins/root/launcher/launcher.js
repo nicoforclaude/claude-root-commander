@@ -442,6 +442,50 @@ function addEntryToParent(entries, entry, targetParent) {
 }
 
 // ============================================================================
+// Changed Files State Helpers
+// ============================================================================
+
+/**
+ * Hide changed files panel
+ */
+function hideChangedFiles(state) {
+  state.showChangedFiles = false;
+  state.changedFiles = null;
+  state.changedFilesPath = null;
+}
+
+/**
+ * Show changed files for entry (if it has changes)
+ * Returns true if files were shown, false otherwise
+ */
+function showChangedFilesForEntry(state, entryPath) {
+  if (!entryPath || !state.diffs[entryPath]) return false;
+
+  const files = getChangedFiles(entryPath);
+  if (files && files.length > 0) {
+    state.showChangedFiles = true;
+    state.changedFiles = files;
+    state.changedFilesPath = entryPath;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Toggle changed files display for entry
+ */
+function toggleChangedFiles(state, entryPath) {
+  if (!entryPath) return;
+
+  // If already showing for this entry, hide
+  if (state.showChangedFiles && state.changedFilesPath === entryPath) {
+    hideChangedFiles(state);
+  } else {
+    showChangedFilesForEntry(state, entryPath);
+  }
+}
+
+// ============================================================================
 // Startup Mode Parsing
 // ============================================================================
 
@@ -936,7 +980,7 @@ function renderMainMenu(state) {
     // Expand/collapse indicator for entries with children
     let expandIndicator = '';
     if (entry.children && entry.children.length > 0) {
-      expandIndicator = entry.expanded ? 'v ' : '> ';
+      expandIndicator = entry.expanded ? '- ' : '+ ';
     }
 
     // Display name - strip parent prefix for nested entries
@@ -1264,8 +1308,8 @@ function renderEntriesEditMode(state) {
       let expandIndicator = '  ';
       if (entry.children && entry.children.length > 0) {
         expandIndicator = entry.expanded
-          ? `${ANSI.dim}v ${ANSI.reset}`
-          : `${ANSI.dim}> ${ANSI.reset}`;
+          ? `${ANSI.dim}- ${ANSI.reset}`
+          : `${ANSI.dim}+ ${ANSI.reset}`;
       }
 
       // Display name - strip parent prefix for nested entries
@@ -2452,47 +2496,51 @@ automatically provide the correct paths from your workspace root.
     switch (key.name) {
       case 'up':
         state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-        // Hide changed files on navigation
-        state.showChangedFiles = false;
-        state.changedFiles = null;
-        state.changedFilesPath = null;
+        hideChangedFiles(state);
         render(state);
         break;
 
       case 'down':
         state.selectedIndex = Math.min(state.flattenedEntries.length - 1, state.selectedIndex + 1);
-        // Hide changed files on navigation
-        state.showChangedFiles = false;
-        state.changedFiles = null;
-        state.changedFilesPath = null;
+        hideChangedFiles(state);
         render(state);
         break;
 
       case 'right':
-        // Expand children
+        // Expand children, or show changed files if leaf
         const itemToExpand = state.flattenedEntries[state.selectedIndex];
-        if (itemToExpand && itemToExpand.entry.children && itemToExpand.entry.children.length > 0) {
+        if (!itemToExpand) break;
+        if (itemToExpand.entry.children && itemToExpand.entry.children.length > 0) {
           itemToExpand.entry.expanded = true;
           refreshFlattenedEntries();
-          render(state);
+        } else if (itemToExpand.entry.path) {
+          // Leaf entry - show changed files
+          toggleChangedFiles(state, itemToExpand.entry.path);
         }
+        render(state);
         break;
 
       case 'left':
-        // Collapse or go to parent
+        // Hide files, collapse group, or go to parent
+        if (state.showChangedFiles) {
+          // First: hide changed files if showing
+          hideChangedFiles(state);
+          render(state);
+          break;
+        }
         const itemToCollapse = state.flattenedEntries[state.selectedIndex];
-        if (itemToCollapse) {
-          if (itemToCollapse.entry.expanded && itemToCollapse.entry.children && itemToCollapse.entry.children.length > 0) {
-            itemToCollapse.entry.expanded = false;
-            refreshFlattenedEntries();
+        if (!itemToCollapse) break;
+        if (itemToCollapse.entry.expanded && itemToCollapse.entry.children?.length > 0) {
+          // Collapse expanded group
+          itemToCollapse.entry.expanded = false;
+          refreshFlattenedEntries();
+          render(state);
+        } else if (itemToCollapse.parent) {
+          // Navigate to parent
+          const parentIdx = state.flattenedEntries.findIndex(item => item.entry === itemToCollapse.parent);
+          if (parentIdx !== -1) {
+            state.selectedIndex = parentIdx;
             render(state);
-          } else if (itemToCollapse.parent) {
-            // Navigate to parent
-            const parentIdx = state.flattenedEntries.findIndex(item => item.entry === itemToCollapse.parent);
-            if (parentIdx !== -1) {
-              state.selectedIndex = parentIdx;
-              render(state);
-            }
           }
         }
         break;
@@ -2596,30 +2644,8 @@ automatically provide the correct paths from your workspace root.
       case 'space':
         // Toggle changed files display
         const currentEntry = state.flattenedEntries[state.selectedIndex];
-        if (currentEntry && currentEntry.entry.path) {
-          const entryPath = currentEntry.entry.path;
-          // If already showing files for this entry, hide them
-          if (state.showChangedFiles && state.changedFilesPath === entryPath) {
-            state.showChangedFiles = false;
-            state.changedFiles = null;
-            state.changedFilesPath = null;
-          } else {
-            // Check if entry has changes
-            const diffKey = entryPath;
-            if (state.diffs[diffKey]) {
-              // Fetch changed files
-              const files = getChangedFiles(entryPath);
-              if (files && files.length > 0) {
-                state.showChangedFiles = true;
-                state.changedFiles = files;
-                state.changedFilesPath = entryPath;
-              } else {
-                state.showChangedFiles = false;
-                state.changedFiles = null;
-                state.changedFilesPath = null;
-              }
-            }
-          }
+        if (currentEntry?.entry.path) {
+          toggleChangedFiles(state, currentEntry.entry.path);
           render(state);
         }
         break;
