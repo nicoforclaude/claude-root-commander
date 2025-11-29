@@ -485,6 +485,46 @@ function toggleChangedFiles(state, entryPath) {
   }
 }
 
+/**
+ * Hide remote changed files display
+ */
+function hideRemoteChangedFiles(state) {
+  state.showRemoteChangedFiles = false;
+  state.remoteChangedFiles = null;
+  state.remoteChangedFilesPath = null;
+}
+
+/**
+ * Show changed files for remote status entry
+ * Returns true if files were shown, false otherwise
+ */
+function showRemoteChangedFilesForEntry(state, repoPath) {
+  if (!repoPath) return false;
+
+  const files = getChangedFiles(repoPath);
+  if (files && files.length > 0) {
+    state.showRemoteChangedFiles = true;
+    state.remoteChangedFiles = files;
+    state.remoteChangedFilesPath = repoPath;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Toggle changed files display in remote status mode
+ */
+function toggleRemoteChangedFiles(state, repoPath) {
+  if (!repoPath) return;
+
+  // If already showing for this repo, hide
+  if (state.showRemoteChangedFiles && state.remoteChangedFilesPath === repoPath) {
+    hideRemoteChangedFiles(state);
+  } else {
+    showRemoteChangedFilesForEntry(state, repoPath);
+  }
+}
+
 // ============================================================================
 // Startup Mode Parsing
 // ============================================================================
@@ -696,6 +736,89 @@ function getRemoteStatus(repoPath) {
     return { branch, ahead, behind };
   } catch (e) {
     return null;
+  }
+}
+
+/**
+ * Detect the default branch for a repo (main, master, etc.)
+ * Returns branch name string, defaults to 'main'
+ */
+function detectDefaultBranch(repoPath) {
+  try {
+    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+    if (!fs.existsSync(path.join(fullPath, '.git'))) {
+      return 'main';
+    }
+
+    // Try symbolic-ref first (most reliable - gets origin's default)
+    try {
+      const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+        cwd: fullPath,
+        encoding: 'utf8',
+        timeout: 5000,
+        stdio: 'pipe',
+      }).trim();
+      // Returns: refs/remotes/origin/main
+      return ref.replace('refs/remotes/origin/', '');
+    } catch (e) {
+      // Fallback: check if 'main' branch exists
+      try {
+        execSync('git rev-parse --verify main', {
+          cwd: fullPath,
+          encoding: 'utf8',
+          timeout: 5000,
+          stdio: 'pipe',
+        });
+        return 'main';
+      } catch (e2) {
+        // Check if 'master' branch exists
+        try {
+          execSync('git rev-parse --verify master', {
+            cwd: fullPath,
+            encoding: 'utf8',
+            timeout: 5000,
+            stdio: 'pipe',
+          });
+          return 'master';
+        } catch (e3) {
+          return 'main'; // default assumption
+        }
+      }
+    }
+  } catch (e) {
+    return 'main';
+  }
+}
+
+/**
+ * Get ahead/behind status compared to the default branch
+ * Returns { ahead, behind, onMain, error }
+ */
+function getStatusVsMain(repoPath, currentBranch, defaultBranch) {
+  if (currentBranch === defaultBranch) {
+    return { ahead: 0, behind: 0, onMain: true, error: false };
+  }
+
+  try {
+    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+
+    // Compare current branch to default branch
+    const result = execSync(
+      `git rev-list --left-right --count ${currentBranch}...${defaultBranch}`,
+      {
+        cwd: fullPath,
+        encoding: 'utf8',
+        timeout: 5000,
+        stdio: 'pipe',
+      }
+    ).trim();
+
+    const parts = result.split(/\s+/);
+    const ahead = parseInt(parts[0]) || 0;
+    const behind = parseInt(parts[1]) || 0;
+    return { ahead, behind, onMain: false, error: false };
+  } catch (e) {
+    return { ahead: 0, behind: 0, onMain: false, error: true };
   }
 }
 
@@ -1410,7 +1533,7 @@ function renderRemoteStatus(state) {
     headerSuffix = ` ${ANSI.dim}(fetched ${timeAgo})${ANSI.reset}`;
   }
   lines.push(`${ANSI.bold}${ANSI.blue}Remote Status:${ANSI.reset}${headerSuffix}`);
-  lines.push(`${ANSI.dim}${'='.repeat(70)}${ANSI.reset}`);
+  lines.push(`${ANSI.dim}${'='.repeat(85)}${ANSI.reset}`);
 
   if (remoteStatusRepos.length === 0) {
     lines.push('');
@@ -1421,7 +1544,22 @@ function renderRemoteStatus(state) {
     renderRemoteTable(lines, state);
   }
 
-  lines.push(`${ANSI.dim}${'='.repeat(70)}${ANSI.reset}`);
+  // Show changed files for selected repo (if toggled)
+  if (state.showRemoteChangedFiles && state.remoteChangedFiles && state.remoteChangedFiles.length > 0) {
+    lines.push('');
+    lines.push(`${ANSI.cyan}Changed files in ${state.remoteChangedFilesPath}:${ANSI.reset}`);
+    state.remoteChangedFiles.forEach(({ status, file }) => {
+      // Color based on status type
+      const statusColor = status.includes('?') ? ANSI.green :        // untracked
+                          status.includes('D') ? ANSI.red :          // deleted
+                          status.includes('A') ? ANSI.green :        // added
+                          ANSI.yellow;                               // modified
+      const paddedStatus = status.padEnd(2);
+      lines.push(`  ${statusColor}${paddedStatus}${ANSI.reset} ${file}`);
+    });
+  }
+
+  lines.push(`${ANSI.dim}${'='.repeat(85)}${ANSI.reset}`);
 
   // Status message (includes fetching/pushing indicators)
   if (remoteStatusFetching) {
@@ -1440,9 +1578,9 @@ function renderRemoteStatus(state) {
 
   lines.push('');
   if (pushableCount > 0) {
-    lines.push(`${ANSI.dim}p: push all (${pushableCount} repos) | f: fetch all | Esc/q: back${ANSI.reset}`);
+    lines.push(`${ANSI.dim}Space: files | p: push all (${pushableCount}) | f: fetch | Esc/q: back${ANSI.reset}`);
   } else {
-    lines.push(`${ANSI.dim}f: fetch all | Esc/q: back${ANSI.reset}`);
+    lines.push(`${ANSI.dim}Space: show files | f: fetch all | Esc/q: back${ANSI.reset}`);
   }
 
   process.stdout.write(ANSI.clear);
@@ -1459,7 +1597,7 @@ function renderRemoteTable(lines, state) {
   // Column headers
   const repoHeader = 'REPO'.padEnd(maxNameLen);
   const branchHeader = 'BRANCH'.padEnd(maxBranchLen);
-  lines.push(`  ${ANSI.dim}${repoHeader}  ${branchHeader}  SYNC      CHANGES${ANSI.reset}`);
+  lines.push(`  ${ANSI.dim}${repoHeader}  ${branchHeader}  SYNC      VS MAIN   CHANGES${ANSI.reset}`);
 
   remoteStatusRepos.forEach((repo, i) => {
     const isSelected = i === remoteStatusSelectedIndex;
@@ -1476,7 +1614,7 @@ function renderRemoteTable(lines, state) {
     // Branch column
     const branch = (repo.branch || 'unknown').padEnd(maxBranchLen);
 
-    // Ahead/behind indicators - show = for in sync (clearer than checkmark)
+    // Ahead/behind indicators vs upstream - show = for in sync
     let syncStatus = '';
     let syncRawLen = 1; // length without ANSI codes
     if (repo.ahead > 0 || repo.behind > 0) {
@@ -1493,13 +1631,38 @@ function renderRemoteTable(lines, state) {
     }
     const syncPadding = ' '.repeat(Math.max(0, 10 - syncRawLen));
 
+    // VS MAIN column - show ahead/behind compared to default branch
+    let vsMainStatus = '';
+    let vsMainRawLen = 1;
+    if (repo.vsMain) {
+      if (repo.vsMain.onMain) {
+        vsMainStatus = `${ANSI.dim}-${ANSI.reset}`;  // on main branch
+      } else if (repo.vsMain.error) {
+        vsMainStatus = `${ANSI.dim}?${ANSI.reset}`;  // error getting status
+      } else if (repo.vsMain.ahead > 0 || repo.vsMain.behind > 0) {
+        if (repo.vsMain.ahead > 0) {
+          vsMainStatus += `${ANSI.cyan}↑${repo.vsMain.ahead}${ANSI.reset}`;
+          vsMainRawLen += 1 + String(repo.vsMain.ahead).length;
+        }
+        if (repo.vsMain.behind > 0) {
+          vsMainStatus += `${ANSI.magenta}↓${repo.vsMain.behind}${ANSI.reset}`;
+          vsMainRawLen += 1 + String(repo.vsMain.behind).length;
+        }
+      } else {
+        vsMainStatus = `${ANSI.dim}=${ANSI.reset}`;  // in sync with main
+      }
+    } else {
+      vsMainStatus = `${ANSI.dim}-${ANSI.reset}`;
+    }
+    const vsMainPadding = ' '.repeat(Math.max(0, 10 - vsMainRawLen));
+
     // Local changes
     let changesDisplay = '';
     if (repo.changes) {
       changesDisplay = `${ANSI.green}+${repo.changes.added}${ANSI.reset}/${ANSI.yellow}-${repo.changes.removed}${ANSI.reset}`;
     }
 
-    lines.push(`${prefix} ${nameColor}${displayName}${ANSI.reset}  ${ANSI.dim}${branch}${ANSI.reset}  ${syncStatus}${syncPadding}${changesDisplay}`);
+    lines.push(`${prefix} ${nameColor}${displayName}${ANSI.reset}  ${ANSI.dim}${branch}${ANSI.reset}  ${syncStatus}${syncPadding}${vsMainStatus}${vsMainPadding}${changesDisplay}`);
   });
 }
 
@@ -1647,6 +1810,10 @@ automatically provide the correct paths from your workspace root.
     remoteStatusMessage: null,           // status message to display
     remoteStatusLastFetch: cache.remoteStatus.lastFetch,  // timestamp from cache
     remoteStatusCache: cache.remoteStatus.data || {},     // cached remote status by path
+    // Remote changed files state (for R screen)
+    remoteChangedFiles: null,           // array of { status, file }
+    remoteChangedFilesPath: null,       // path of repo showing changed files
+    showRemoteChangedFiles: false,      // toggle state
     // First-run prompt state
     firstRunPrompt: false,
   };
@@ -2225,7 +2392,17 @@ automatically provide the correct paths from your workspace root.
           state.remoteStatusSelectedIndex = 0;
           state.remoteStatusRepos = [];
           state.remoteStatusMessage = null;
+          hideRemoteChangedFiles(state);
           render(state);
+          break;
+
+        case 'space':
+          // Toggle changed files display for selected repo
+          const selectedRepo = state.remoteStatusRepos[state.remoteStatusSelectedIndex];
+          if (selectedRepo) {
+            toggleRemoteChangedFiles(state, selectedRepo.path);
+            render(state);
+          }
           break;
 
         default:
@@ -2253,6 +2430,8 @@ automatically provide the correct paths from your workspace root.
               // Refresh changes too
               const stats = getGitStats(repo.path);
               repo.changes = stats;
+              // Refresh vsMain status
+              repo.vsMain = getStatusVsMain(repo.path, repo.branch, repo.defaultBranch);
               // Update cache
               state.remoteStatusCache[repo.path] = {
                 branch: repo.branch,
@@ -2610,6 +2789,8 @@ automatically provide the correct paths from your workspace root.
         state.remoteStatusSelectedIndex = 0;
         state.remoteStatusFetching = false;
         state.remoteStatusMessage = null;
+        // Clear remote changed files state
+        hideRemoteChangedFiles(state);
 
         // Build list of all managed repos (flat, no nesting) with LOCAL status only
         const managedReposForRemote = getManagedRepos(state.allRepos, state.unmanagedPaths);
@@ -2619,13 +2800,18 @@ automatically provide the correct paths from your workspace root.
           // Get local status only (no fetch) - ahead/behind will be stale until 'f' pressed
           const status = getRemoteStatus(repo.path);
           const stats = getGitStats(repo.path);
+          const defaultBranch = detectDefaultBranch(repo.path);
+          const currentBranch = status?.branch || 'unknown';
+          const vsMain = getStatusVsMain(repo.path, currentBranch, defaultBranch);
 
           remoteRepos.push({
             path: repo.path,
             name: repo.path,
-            branch: status?.branch || 'unknown',
+            branch: currentBranch,
+            defaultBranch: defaultBranch,
             ahead: status?.ahead || 0,
             behind: status?.behind || 0,
+            vsMain: vsMain,
             changes: stats,
           });
         }
