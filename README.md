@@ -29,6 +29,37 @@ Or locally:
 /plugin install root@claude-root-commander
 ```
 
+## Updating
+
+Update method depends on how you installed the plugin:
+
+### Marketplace Installation
+
+If installed via `/plugin install`:
+
+```
+/plugin update root@claude-root-commander
+```
+
+### Local Development
+
+If linked to a local repository (`isLocal: true` in `~/.claude/plugins/installed_plugins.json`):
+
+```bash
+cd /path/to/claude-root-commander
+git pull
+```
+
+### Manual Download
+
+If you downloaded `launcher.js` manually, fetch the latest version:
+
+```
+https://raw.githubusercontent.com/nicoforclaude/claude-root-commander/main/plugins/root/launcher/launcher.js
+```
+
+Save to your existing location and verify with `node --check launcher.js`.
+
 ## Commands
 
 ### Git Operations (`/root:git:*`)

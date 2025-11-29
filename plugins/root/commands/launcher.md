@@ -11,7 +11,7 @@ This setup involves **10 steps**. Most steps are quick checks; the full process 
 | Step | Name | What Happens |
 |------|------|--------------|
 | 1 | Prerequisites | Verify Node.js 18+ and git are installed |
-| 2 | Locate launcher.js | Find or recover the launcher script |
+| 2 | Locate launcher.js | Find script, detect source, offer updates |
 | 3 | Detect Workspace Root | Auto-detect or confirm workspace location |
 | 4 | Verify State Directory | Ensure config directory is writable |
 | 5 | Check Configuration | Review existing config or prepare for creation |
@@ -48,7 +48,11 @@ Run these checks:
 
 ### Step 2: Locate launcher.js
 
-**Goal:** Find the launcher script or recover it.
+**Goal:** Find the launcher script, detect its source, and offer updates.
+
+---
+
+#### 2.1 Find launcher.js
 
 **Auto-detection sequence (check in order, stop at first success):**
 
@@ -82,7 +86,98 @@ Run these checks:
 
 **Verification:** Run `node --check "{LAUNCHER_PATH}"` to verify syntax.
 
-**Success metric:** File exists and passes syntax check.
+**Set variables:**
+- `LAUNCHER_PATH` = found path
+- `LAUNCHER_SOURCE` = how it was found (see 2.2)
+
+---
+
+#### 2.2 Detect Installation Source
+
+**Check installed_plugins.json first:**
+
+```
+Read ~/.claude/plugins/installed_plugins.json
+Look for "root@claude-root-commander" entry
+```
+
+**Source determination:**
+
+| Condition | Source | Meaning |
+|-----------|--------|---------|
+| Entry exists, `isLocal: false` | `marketplace` | Installed via /plugin install |
+| Entry exists, `isLocal: true` | `local-dev` | Linked to source repo |
+| No entry, found in STATE_DIR | `manual-download` | User downloaded manually |
+| No entry, found elsewhere | `unknown` | Custom setup |
+
+**Report to user:**
+```
+Found launcher.js at: {LAUNCHER_PATH}
+Installation source: {LAUNCHER_SOURCE}
+```
+
+---
+
+#### 2.3 Check for Updates (Optional)
+
+**Ask user:** "Would you like to check for updates?"
+
+**If YES, based on source:**
+
+**marketplace:**
+```
+Your launcher.js was installed via plugin system.
+Installed version: {gitCommitSha from installed_plugins.json}
+
+To update, run:
+  /plugin update root@claude-root-commander
+
+Then re-run /root:launcher to verify.
+```
+
+**local-dev:**
+```
+Your launcher.js is linked to a local repository:
+  {installPath}
+
+To update:
+  1. cd "{installPath}"
+  2. git pull
+
+Current commit: {gitCommitSha}
+```
+
+**manual-download:**
+```
+Your launcher.js was manually downloaded.
+Current location: {LAUNCHER_PATH}
+
+Options:
+  1. Download latest from GitHub (recommended)
+  2. Keep current version
+```
+
+If user chooses download:
+- Fetch from: https://raw.githubusercontent.com/nicoforclaude/claude-root-commander/main/plugins/root/launcher/launcher.js
+- Save to: same location (overwrite) or STATE_DIR
+- Verify with `node --check`
+
+**unknown:**
+```
+Launcher found at: {LAUNCHER_PATH}
+Unable to determine installation source.
+
+To update manually, download from:
+  https://raw.githubusercontent.com/nicoforclaude/claude-root-commander/main/plugins/root/launcher/launcher.js
+```
+
+---
+
+#### 2.4 Success Criteria
+
+- launcher.js exists and passes syntax check
+- Source detected and reported to user
+- Update offered/completed if requested
 
 **Troubleshooting:**
 
@@ -92,8 +187,9 @@ Run these checks:
 | installPath exists but file missing | Offer to download from GitHub |
 | Syntax error in file | Show error, suggest re-download |
 | All paths fail | Download from GitHub to STATE_DIR |
-
-**Set variable:** `LAUNCHER_PATH` = found path
+| Entry exists but file missing | Offer re-install or download |
+| Download fails | Show error, offer retry or manual URL |
+| Syntax check fails after update | Rollback or re-download |
 
 ---
 
