@@ -5,11 +5,23 @@ description: Update project CLAUDE.md from template with interactive selection
 
 You are updating a project-level CLAUDE.md file from the template.
 
+## Path Configuration
+
+The template is located in the plugin directory:
+- **Plugin location**: `CLAUDE_PLUGINS_ROOT/root/templates/`
+- **CLAUDE_PLUGINS_ROOT** is defined in workspace root CLAUDE.md (e.g., `C:\KolyaRepositories\.localData\claude-plugins`)
+- **Template**: `<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`
+
 ## Your Task
 
-### Step 1: Select Target Project(s)
+### Step 1: Determine Template Path
 
-First, ask the user which project(s) to update using AskUserQuestion:
+Read workspace root CLAUDE.md to find CLAUDE_PLUGINS_ROOT value, then construct:
+- Template path: `<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`
+
+### Step 2: Select Target Project(s)
+
+Ask the user which project(s) to update using AskUserQuestion:
 
 ```
 Question: "Which project(s) should be updated?"
@@ -25,7 +37,7 @@ Options:
 
 **Important:** Read the list of managed repos dynamically from `C:\KolyaRepositories\claude_root_commander.md` under "Repositories for syncing claude" section. Use those exact paths in the options.
 
-### Step 2: For Each Selected Project
+### Step 3: For Each Selected Project
 
 For each selected repository, perform the following:
 
@@ -34,9 +46,9 @@ For each selected repository, perform the following:
    - If not exists: Show that a new file will be created from template
 
 2. **Show what would change**:
-   - Source: `.claude/templates/project-claude.md`
+   - Source: `<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`
    - Destination: `<project-path>/CLAUDE.md`
-   - Use git diff: `git diff --no-index <project-path>\CLAUDE.md .claude\templates\project-claude.md` (if file exists)
+   - Use git diff: `git diff --no-index <project-path>\CLAUDE.md "<CLAUDE_PLUGINS_ROOT>\root\templates\project-claude.md"` (if file exists)
    - If file doesn't exist, show template content that will be created
 
 3. **Ask for confirmation** (for each project individually if multiple selected):
@@ -46,7 +58,7 @@ For each selected repository, perform the following:
    - Options: "Yes, update", "Skip this project", "Show full template"
 
 4. **Copy template if confirmed**:
-   - Use PowerShell to copy: `Copy-Item ".claude\templates\project-claude.md" "<project-path>\CLAUDE.md" -Force`
+   - Use PowerShell to copy: `Copy-Item "<CLAUDE_PLUGINS_ROOT>\root\templates\project-claude.md" "<project-path>\CLAUDE.md" -Force`
    - Verify the copy succeeded
 
 5. **Report results**:
@@ -108,7 +120,7 @@ Summary:
 
 ## Important Notes
 
-- The template (`.claude/templates/project-claude.md`) is the source of truth
+- The template (`<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`) is the source of truth
 - Each project's CLAUDE.md should be customized after copying
 - Project CLAUDE.md files are committed to their respective repositories
 - This is different from root CLAUDE.md which lives at workspace root

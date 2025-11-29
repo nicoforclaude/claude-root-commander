@@ -58,3 +58,7 @@ Example:
 - Claude Code
 - Node.js (for launcher)
 - Git (for git operations)
+
+## Known Issues / Future Work
+
+- **Launcher tight coupling**: `launcher.js` is a monolithic 92KB file. Future refactoring opportunity to modularize into smaller components (UI, config, git operations, etc.)

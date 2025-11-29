@@ -5,28 +5,39 @@ description: Update CLAUDE.md from template with diff preview
 
 You are updating the CLAUDE.md file in the workspace root from the template.
 
+## Path Configuration
+
+The template and script are located in the plugin directory:
+- **Plugin location**: `CLAUDE_PLUGINS_ROOT/root/templates/`
+- **CLAUDE_PLUGINS_ROOT** is defined in workspace root CLAUDE.md (e.g., `C:\KolyaRepositories\.localData\claude-plugins`)
+
 ## Your Task
 
-1. **Check what changes would occur**:
-   - Source: `.claude/templates/root_claude.md`
+1. **Determine the plugin templates path**:
+   - Read workspace root CLAUDE.md to find CLAUDE_PLUGINS_ROOT value
+   - Template path: `<CLAUDE_PLUGINS_ROOT>/root/templates/root_claude.md`
+   - Script path: `<CLAUDE_PLUGINS_ROOT>/root/templates/copy_root_claude_md_from_template.ps1`
+
+2. **Check what changes would occur**:
+   - Source: `<CLAUDE_PLUGINS_ROOT>/root/templates/root_claude.md`
    - Destination: `CLAUDE.md` (in workspace root)
    - Use git diff or compare the files to show what would change
-   - Use powershell command like: `git diff --no-index CLAUDE.md .claude\templates\root_claude.md` or similar comparison
+   - Example: `git diff --no-index CLAUDE.md "<CLAUDE_PLUGINS_ROOT>\root\templates\root_claude.md"`
 
-2. **Show changes to user and ask for confirmation**:
+3. **Show changes to user and ask for confirmation**:
    - Display the diff/changes that would be made
    - If no changes, inform user that files are identical
    - Ask user to confirm if they want to proceed with the update using AskUserQuestion tool
 
-3. **Run the script if confirmed**:
-   - Execute: `powershell -ExecutionPolicy Bypass -File ".claude\scripts\copy_root_claude_md_from_template.ps1"`
+4. **Run the script if confirmed**:
+   - Execute: `powershell -ExecutionPolicy Bypass -File "<CLAUDE_PLUGINS_ROOT>\root\templates\copy_root_claude_md_from_template.ps1" "<workspace-root>"`
    - The script will:
      - Remove all `///INSTRUCTION LINE` comments from the template
      - Prompt for quasi-variable values (like `CLAUDE_MAIN_WORKSPACE_ROOT`)
      - Copy the processed template to `CLAUDE.md`
      - Display all quasi-variables that were set
 
-4. **Verify success**:
+5. **Verify success**:
    - Confirm file was updated
    - Show the quasi-variables that were configured
    - Show success message
@@ -60,5 +71,6 @@ Derived quasi-variables (automatically calculated):
 
 ## Important Notes
 
-- The template (.claude/templates/root_claude.md) is the source of truth
+- The template (in plugin's templates folder) is the source of truth
 - The user edits this template, then runs this command to deploy updates
+- Template location: `<CLAUDE_PLUGINS_ROOT>/root/templates/root_claude.md`
