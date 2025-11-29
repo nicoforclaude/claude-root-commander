@@ -2,39 +2,116 @@ Setup or migrate the Claude Root Launcher.
 
 ## Purpose
 
-Guide users through launcher setup, including:
-- Auto-detection of workspace root (no pre-configuration needed)
-- Migration from existing launcher scripts (PowerShell/batch)
-- First-time configuration
-- IDE preference setup
-- Troubleshooting
+Guide users through launcher setup with verification at each step.
 
-## Launcher Location
+## Overview
 
-The launcher is a Node.js script at:
-```
-plugins/root/launcher/launcher.js
-```
+This setup involves **10 steps**. Most steps are quick checks; the full process typically completes in 2-3 minutes.
 
-Run it with: `node launcher.js --workspace-root <path> --state-dir <path>`
+| Step | Name | What Happens |
+|------|------|--------------|
+| 1 | Prerequisites | Verify Node.js 18+ and git are installed |
+| 2 | Locate launcher.js | Find or recover the launcher script |
+| 3 | Detect Workspace Root | Auto-detect or confirm workspace location |
+| 4 | Verify State Directory | Ensure config directory is writable |
+| 5 | Check Configuration | Review existing config or prepare for creation |
+| 6 | Scan Repositories | Discover git repos in workspace |
+| 7 | IDE Detection | Find installed IDEs (WebStorm, VS Code, etc.) |
+| 8 | Generate Config | Create runner-config.json with settings |
+| 9 | Test Launch | Verify launcher works with `--help` |
+| 10 | Final Verification | Confirm success, offer to launch |
+
+**Each step has a success metric** - you'll know exactly when each step passes or fails.
+
+---
 
 ## Steps
 
-### 0. Prerequisites - Detect Workspace Root
+### Step 1: Prerequisites
 
-**Goal:** Determine workspace root and plugin data location without requiring pre-configured quasi-variables.
+**Goal:** Verify environment before starting.
 
-#### If CLAUDE_PLUGINS_ROOT is available in context:
-- Use it directly: `{CLAUDE_PLUGINS_ROOT}/nicoforclaude/root/`
-- Skip to Step 1
+Run these checks:
 
-#### Auto-detection mode (when quasi-var not available):
+| Check | Command | Success Criteria |
+|-------|---------|------------------|
+| Node.js | `node --version` | Version 18+ |
+| Git | `git --version` | Any version |
+
+**Success metric:** Both commands return version numbers.
+
+**If Node.js fails:**
+- Guide user to install from https://nodejs.org/
+- Recommend LTS version
+
+---
+
+### Step 2: Locate launcher.js
+
+**Goal:** Find the launcher script or recover it.
+
+**Auto-detection sequence (check in order, stop at first success):**
+
+1. **Check installed_plugins.json:**
+   ```
+   ~/.claude/plugins/installed_plugins.json
+   ```
+   - Look for `root@claude-root-commander` entry
+   - Get `installPath` field
+   - Append `/launcher/launcher.js`
+
+2. **Check CLAUDE_PLUGINS_ROOT** (if available in context):
+   ```
+   {CLAUDE_PLUGINS_ROOT}/nicoforclaude/root/launcher/launcher.js
+   ```
+
+3. **Check marketplace default path:**
+   ```
+   ~/.claude/plugins/marketplaces/claude-root-commander/plugins/root/launcher/launcher.js
+   ```
+
+4. **Check relative to current repo** (dev mode):
+   ```
+   ./plugins/root/launcher/launcher.js
+   ```
+
+5. **GitHub recovery** (last resort):
+   ```
+   https://raw.githubusercontent.com/nicoforclaude/claude-root-commander/main/plugins/root/launcher/launcher.js
+   ```
+
+**Verification:** Run `node --check "{LAUNCHER_PATH}"` to verify syntax.
+
+**Success metric:** File exists and passes syntax check.
+
+**Troubleshooting:**
+
+| Situation | Action |
+|-----------|--------|
+| Plugin not in installed_plugins.json | Guide: `/plugin install root@claude-root-commander` |
+| installPath exists but file missing | Offer to download from GitHub |
+| Syntax error in file | Show error, suggest re-download |
+| All paths fail | Download from GitHub to STATE_DIR |
+
+**Set variable:** `LAUNCHER_PATH` = found path
+
+---
+
+### Step 3: Detect Workspace Root
+
+**Goal:** Determine workspace root without requiring pre-configured quasi-variables.
+
+#### If CLAUDE_PLUGINS_ROOT is available:
+- Use parent directory as workspace root
+- Skip to confirmation
+
+#### Auto-detection mode:
 
 1. **Collect candidates** - Walk up directories from cwd to root
 
 2. **Filter unreasonable paths** - Exclude:
    - Drive roots (`C:\`, `D:\`, `/`)
-   - User home directory (check `$HOME`, `$USERPROFILE`, or `~`)
+   - User home directory
    - System directories (`C:\Windows`, `C:\Program Files`, `/usr`, `/etc`)
    - Paths with only 1-2 segments from root
 
@@ -42,90 +119,166 @@ Run it with: `node launcher.js --workspace-root <path> --state-dir <path>`
 
    | Signal | Score | Check |
    |--------|-------|-------|
-   | Has `.claude` folder | +3 | `Test-Path "<path>/.claude"` or `ls` |
-   | Has `CLAUDE.md` file | +2 | `Test-Path "<path>/CLAUDE.md"` |
-   | Contains multiple repos | +2 | Count `.git` folders in children (2+ levels) |
-   | Has `.localData` folder | +1 | `Test-Path "<path>/.localData"` |
+   | Has `.claude` folder | +3 | Directory exists |
+   | Has `CLAUDE.md` file | +2 | File exists |
+   | Contains multiple repos | +2 | Count `.git` in children |
+   | Has `.localData` folder | +1 | Directory exists |
    | Is repo root itself | -1 | Has `.git` directly |
 
-4. **Present top candidate to user:**
+4. **Present top candidate:**
    ```
    Detected workspace root: <path>
    Signals found:
-     - .claude folder ✓
-     - CLAUDE.md ✓
-     - Contains N repositories ✓
-
-   Plugin data will be stored at:
-     <path>/.localData/claude-plugins/nicoforclaude/root/
+     - .claude folder
+     - CLAUDE.md
+     - Contains N repositories
 
    Is this correct?
    ```
 
-5. **Ask user to confirm** using AskUserQuestion:
-   - Options: "Yes, use this", "Let me specify a different path"
-   - If user chooses different, ask for the path
+5. **Ask user to confirm** using AskUserQuestion
 
-6. **Set working variables for remaining steps:**
-   - `WORKSPACE_ROOT` = confirmed path
-   - `STATE_DIR` = `{WORKSPACE_ROOT}/.localData/claude-plugins/nicoforclaude/root/`
+**Success metric:** User confirms path OR provides custom path.
 
-### 1. Check Current State
+**Set variables:**
+- `WORKSPACE_ROOT` = confirmed path
+- `STATE_DIR` = `{WORKSPACE_ROOT}/.localData/claude-plugins/nicoforclaude/root/`
 
-Check if launcher config exists at:
+---
+
+### Step 4: Verify State Directory
+
+**Goal:** Ensure state directory exists and is writable.
+
+**Actions:**
+1. Check if `{STATE_DIR}` exists
+2. If not, create it (including parent directories)
+3. Test write permissions by creating a temp file
+
+**Success metric:** Directory exists with write permissions.
+
+---
+
+### Step 5: Check/Create Configuration
+
+**Goal:** Ensure configuration files exist.
+
+**Check these files in STATE_DIR:**
+
+| File | Purpose | Action if Missing |
+|------|---------|-------------------|
+| `repos.json` | Repository list | Will be created in Step 5 |
+| `runner-config.json` | User preferences | Will be created in Step 6 |
+| `cache.json` | Performance cache | Auto-created on first run |
+
+**Report current state:**
+- If config exists: show entry count, configured IDEs
+- If no config: inform user it will be created
+
+**Success metric:** STATE_DIR accessible, files will be created as needed.
+
+---
+
+### Step 6: Scan for Repositories
+
+**Goal:** Discover git repositories in workspace.
+
+**Actions:**
+1. Scan WORKSPACE_ROOT for directories containing `.git`
+2. Exclude: `node_modules`, hidden folders, `.localData`
+3. Update `repos.json` with discovered repos
+
+**Report:** "Found N repositories"
+
+**Success metric:** At least 1 repository discovered.
+
+**If zero repos found:**
+- Verify WORKSPACE_ROOT is correct
+- Check if repos exist but are nested too deep
+
+---
+
+### Step 7: IDE Detection
+
+**Goal:** Detect installed IDEs for launcher integration.
+
+**Check these paths (Windows):**
+- `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\JetBrains\` (WebStorm, IntelliJ)
+- `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code\`
+- `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Eclipse\`
+
+**Report detected IDEs and ask user to confirm preferences.**
+
+**Success metric:** At least 1 IDE detected OR user acknowledges no IDE needed.
+
+---
+
+### Step 8: Generate/Update Config
+
+**Goal:** Create runner-config.json with detected settings.
+
+**If no existing config:**
+1. Create runner-config.json with:
+   - Detected IDEs
+   - Repos from repos.json
+   - Default modes
+
+**If config exists:**
+1. Report current settings
+2. Ask if user wants to update
+
+**Success metric:** Valid runner-config.json exists.
+
+---
+
+### Step 9: Test Launch
+
+**Goal:** Verify launcher actually works before finishing.
+
+**Test command:**
+```bash
+node "{LAUNCHER_PATH}" --workspace-root "{WORKSPACE_ROOT}" --state-dir "{STATE_DIR}" --help
 ```
-{STATE_DIR}/runner-config.json
+
+**Expected:** Command exits successfully and shows help output.
+
+**Success metric:** Exit code 0, help text displayed.
+
+**If test fails:**
+- Show error message
+- Check Node.js version compatibility
+- Verify all paths are correct
+- Offer to re-download launcher.js
+
+---
+
+### Step 10: Final Verification
+
+**Goal:** Confirm setup is complete and user is satisfied.
+
+**Present success summary:**
+```
+Setup Complete!
+
+Verified:
+  [x] Node.js vXX.x
+  [x] launcher.js found at: {LAUNCHER_PATH}
+  [x] Workspace root: {WORKSPACE_ROOT}
+  [x] State directory: {STATE_DIR}
+  [x] Configuration created
+  [x] N repositories discovered
+  [x] IDE(s) detected: WebStorm, IntelliJ
+  [x] Test launch successful
+
+To run the launcher:
+  node "{LAUNCHER_PATH}" --workspace-root "{WORKSPACE_ROOT}" --state-dir "{STATE_DIR}"
 ```
 
-Report:
-- If config exists: show entry count, detected IDEs
-- If no config: will create during setup
+**Ask user:** "Would you like to launch it now?"
 
-### 2. Scan for Repositories
+**Success metric:** User confirms satisfaction OR reports issues to address.
 
-Run the scan-for-repos command to ensure repos.json is up to date:
-- Read repos.json
-- Report how many repos are discovered
-
-### 3. Migration Check
-
-Ask user: "Do you have an existing launcher script to migrate? Provide the path, or type 'no'"
-
-If user provides a path:
-1. Read the script (PowerShell .ps1 or batch .bat/.cmd)
-2. Extract:
-   - Repository paths and names
-   - IDE preferences per repo
-   - Menu structure/ordering
-3. Generate runner-config.json with migrated settings
-4. Report what was migrated
-
-### 4. IDE Detection
-
-Check these paths for IDE shortcuts:
-- `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\JetBrains` (WebStorm, IntelliJ)
-- `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Visual Studio Code`
-- `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Eclipse`
-
-Report detected IDEs and ask user to confirm preferences.
-
-### 5. Generate Config
-
-If no existing config, create runner-config.json with:
-- Detected IDEs
-- Repos from repos.json
-- Default settings
-
-### 6. Final Report
-
-Show:
-- Workspace root: `{WORKSPACE_ROOT}`
-- Config location: `{STATE_DIR}/runner-config.json`
-- How to run the launcher:
-  ```
-  node plugins/root/launcher/launcher.js --workspace-root "{WORKSPACE_ROOT}" --state-dir "{STATE_DIR}"
-  ```
-- Quick reference of launcher controls
+---
 
 ## Config Schema
 
@@ -133,26 +286,62 @@ Show:
 ```json
 {
   "version": "1.0.0",
-  "workspaceRoot": "/path/to/workspace",
-  "stateDir": "/path/to/workspace/.localData/claude-plugins/nicoforclaude/root",
   "modes": ["Claude", "IDE", "Claude + IDE", "PowerShell"],
-  "claudeStartupModes": ["none", "with startup check", "with /commit"],
+  "claudeStartupModes": ["none", "with /git:startup", "with /git:commit"],
   "ides": [
     { "name": "WebStorm", "shortcut": "path/to/shortcut.lnk" }
   ],
   "entries": [
     { "type": "workspace", "path": ".", "name": "Root", "ide": "WebStorm" },
     { "type": "repo", "path": "org/project", "name": "My Project", "ide": "IntelliJ" }
-  ]
+  ],
+  "unmanagedPaths": []
 }
 ```
 
-**Note:** `workspaceRoot` and `stateDir` are auto-detected during setup (Step 0) and stored for future use.
+---
 
-## Troubleshooting
+## Migration from Existing Scripts
 
-If user reports issues:
-1. Check if Node.js is installed: `node --version`
-2. Check config file exists and is valid JSON
-3. Check repos.json exists
-4. Verify IDE shortcuts exist at detected paths
+If user has an existing launcher script (PowerShell .ps1 or batch .bat/.cmd):
+
+1. Ask for the script path
+2. Parse and extract:
+   - Repository paths and names
+   - IDE preferences per repo
+   - Menu structure/ordering
+3. Generate runner-config.json with migrated settings
+4. Report what was migrated
+
+---
+
+## Troubleshooting Reference
+
+| Issue | Check | Solution |
+|-------|-------|----------|
+| "node not found" | `node --version` | Install Node.js 18+ from nodejs.org |
+| launcher.js not found | Check Step 1 paths | Re-install plugin or download from GitHub |
+| Config parse error | Validate JSON syntax | Delete and re-create runner-config.json |
+| No repos found | Check WORKSPACE_ROOT | Verify path contains git repositories |
+| IDE not detected | Check Start Menu paths | Add IDE shortcut path manually |
+| Test launch fails | Check error message | Verify Node.js version, file permissions |
+
+---
+
+## Quick Reference
+
+**GitHub repository:**
+```
+https://github.com/nicoforclaude/claude-root-commander
+```
+
+**Direct launcher.js download:**
+```
+https://raw.githubusercontent.com/nicoforclaude/claude-root-commander/main/plugins/root/launcher/launcher.js
+```
+
+**Plugin installation:**
+```
+/plugin marketplace add https://github.com/nicoforclaude/claude-root-commander
+/plugin install root@claude-root-commander
+```
