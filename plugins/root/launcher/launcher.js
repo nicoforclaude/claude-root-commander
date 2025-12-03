@@ -994,7 +994,7 @@ function launch(entry, mode, claudeStartupMode, ides) {
 
   if (mode === 'PowerShell') {
     console.log(`\n${ANSI.blue}Opening PowerShell in ${entry.name}...${ANSI.reset}`);
-    spawn('powershell', ['-NoExit', '-Command', `Set-Location '${fullPath}'`], { detached: true, stdio: 'ignore' });
+    spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command', `Set-Location '${fullPath}'`], { detached: true, stdio: 'ignore' });
     return true;
   }
 
@@ -1010,6 +1010,10 @@ function launch(entry, mode, claudeStartupMode, ides) {
 
   console.log(`\n${ANSI.green}${msg}...${ANSI.reset}`);
   process.chdir(fullPath);
+
+  // Release stdin completely before spawning Claude
+  process.stdin.removeAllListeners('keypress');
+  process.stdin.pause();
 
   // Execute claude (replace current process)
   const claude = spawn('claude', claudeArgs, { stdio: 'inherit', shell: true });
