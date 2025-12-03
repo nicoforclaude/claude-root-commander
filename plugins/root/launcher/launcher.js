@@ -1021,6 +1021,48 @@ function launch(entry, mode, claudeStartupMode, ides) {
   return true;
 }
 
+/**
+ * Launch entry in detached mode (new window), keeping launcher open.
+ * Used for Shift+Enter multi-select workflow.
+ */
+function launchDetached(entry, mode, claudeStartupMode, ides) {
+  const fullPath = path.join(WORKSPACE_ROOT, entry.path);
+
+  if (!fs.existsSync(fullPath)) {
+    return { success: false, message: `Path not found: ${fullPath}` };
+  }
+
+  const ide = ides.find(i => i.name === entry.ide) || ides[0];
+
+  // IDE modes - spawn detached
+  if (mode === 'IDE' || mode === 'Claude + IDE') {
+    if (!ide) {
+      return { success: false, message: 'No IDE configured' };
+    }
+    spawn('cmd', ['/c', 'start', '', ide.shortcut, fullPath], { detached: true, stdio: 'ignore' });
+
+    if (mode === 'IDE') {
+      return { success: true, message: `Opened in ${ide.name}` };
+    }
+  }
+
+  // PowerShell mode - spawn detached
+  if (mode === 'PowerShell') {
+    spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command', `Set-Location '${fullPath}'`], { detached: true, stdio: 'ignore' });
+    return { success: true, message: 'Opened PowerShell' };
+  }
+
+  // Claude modes - spawn in new PowerShell window
+  const command = parseStartupMode(claudeStartupMode);
+  const claudeCmd = command ? `claude ${command}` : 'claude';
+
+  spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command',
+    `Set-Location '${fullPath}'; ${claudeCmd}`], { detached: true, stdio: 'ignore' });
+
+  const modeDesc = mode === 'Claude + IDE' ? `${ide?.name || 'IDE'} + Claude` : 'Claude';
+  return { success: true, message: `Opened ${modeDesc}` };
+}
+
 // ============================================================================
 // UI Rendering
 // ============================================================================
@@ -1166,7 +1208,7 @@ function renderMainMenu(state) {
   lines.push(`\n${modeColor}Current Mode: ${modeDisplay}${ANSI.reset}`);
 
   // Help line (Gray like original)
-  lines.push(`${ANSI.gray}Tab/w: mode | c: startup | Up/Down: nav | Enter: select | 1-${flattenedEntries.length}: direct | q: quit${ANSI.reset}`);
+  lines.push(`${ANSI.gray}Tab/w: mode | c: startup | Up/Down: nav | Enter: select | n: new window | q: quit${ANSI.reset}`);
   lines.push(`${ANSI.gray}Left/Right: expand/collapse | d: git diff | Space: files | r: remote | f: config${ANSI.reset}`);
 
   // Git diffs timestamp
@@ -1194,6 +1236,12 @@ function renderMainMenu(state) {
       const paddedStatus = status.padEnd(2);
       lines.push(`  ${statusColor}${paddedStatus}${ANSI.reset} ${file}`);
     });
+  }
+
+  // Launch message (from Shift+Enter multi-select)
+  if (state.lastLaunchMessage) {
+    lines.push('');
+    lines.push(`${ANSI.green}${state.lastLaunchMessage}${ANSI.reset}`);
   }
 
   // Clear and print
@@ -2736,7 +2784,7 @@ automatically provide the correct paths from your workspace root.
           state.otherManagedSelectedIndex = 0;
           render(state);
         } else if (selectedItem.entry.path) {
-          // Has path - launch
+          // Has path - launch and exit (use 'n' for new window)
           if (process.stdin.isTTY) process.stdin.setRawMode(false);
           launch(selectedItem.entry, state.mode, state.claudeStartupMode, state.ides);
         } else if (selectedItem.entry.children && selectedItem.entry.children.length > 0) {
@@ -2841,6 +2889,22 @@ automatically provide the correct paths from your workspace root.
         break;
 
       default:
+        // 'n' key - launch in new window (same as Shift+Enter)
+        if (str === 'n') {
+          const nSelectedItem = state.flattenedEntries[state.selectedIndex];
+          if (nSelectedItem?.entry.path) {
+            const result = launchDetached(nSelectedItem.entry, state.mode, state.claudeStartupMode, state.ides);
+            state.lastLaunchMessage = result.success
+              ? `${result.message}: ${nSelectedItem.entry.name}`
+              : `Error: ${result.message}`;
+            render(state);
+            setTimeout(() => {
+              state.lastLaunchMessage = null;
+              render(state);
+            }, 2500);
+          }
+          break;
+        }
         // Number keys
         const num = parseInt(str, 10);
         if (num >= 1 && num <= state.flattenedEntries.length) {
