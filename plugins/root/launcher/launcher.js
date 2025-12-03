@@ -207,9 +207,10 @@ function loadConfig() {
 
 function createDefaultConfig(repositories) {
   return {
-    version: '1.1.0',
+    version: '1.2.0',
     modes: ['Claude', 'IDE', 'Claude + IDE', 'PowerShell'],
     claudeStartupModes: ['none', 'with /git:startup', 'with /git:commit'],
+    claudeCommand: null, // null = auto-detect on first use
     ides: detectIDEs(),
     unmanagedPaths: [], // Repos excluded from main menu
     entries: [
@@ -589,6 +590,52 @@ function detectIDEs() {
 }
 
 // ============================================================================
+// Claude Command Detection
+// ============================================================================
+
+/**
+ * Detect available Claude command
+ * Tries candidates in order, returns first that works
+ */
+function detectClaudeCommand() {
+  const candidates = [
+    'claude',                         // Global install
+    'npx claude',                     // npx shorthand
+    'npx @anthropic-ai/claude-code',  // Full package name
+  ];
+
+  for (const cmd of candidates) {
+    try {
+      execSync(`${cmd} --version`, { stdio: 'pipe', timeout: 15000 });
+      return cmd;
+    } catch (e) {
+      // Try next candidate
+    }
+  }
+  return 'claude'; // Default fallback
+}
+
+/**
+ * Get Claude command from config, or detect and cache if not set
+ */
+function getClaudeCommand() {
+  const paths = getConfigPaths();
+  let config = loadJson(paths.config);
+
+  if (config?.claudeCommand) {
+    return config.claudeCommand;
+  }
+
+  // Auto-detect and save
+  const detected = detectClaudeCommand();
+  if (config) {
+    config.claudeCommand = detected;
+    saveJson(paths.config, config);
+  }
+  return detected;
+}
+
+// ============================================================================
 // Git Operations
 // ============================================================================
 
@@ -963,9 +1010,12 @@ function launch(entry, mode, claudeStartupMode, ides, detached = false) {
   // Claude modes
   const command = parseStartupMode(claudeStartupMode);
 
+  // Get the Claude command (cached or auto-detected)
+  const claudeExe = getClaudeCommand();
+
   if (detached) {
     // Spawn Claude in new PowerShell window
-    const claudeCmd = command ? `claude ${command}` : 'claude';
+    const claudeCmd = command ? `${claudeExe} ${command}` : claudeExe;
     spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command',
       `Set-Location '${fullPath}'; ${claudeCmd}`], DETACHED_SPAWN);
     const modeDesc = mode === 'Claude + IDE' ? `${ide?.name || 'IDE'} + Claude` : 'Claude';
@@ -978,7 +1028,7 @@ function launch(entry, mode, claudeStartupMode, ides, detached = false) {
   process.chdir(fullPath);
   process.stdin.removeAllListeners('keypress');
   process.stdin.pause();
-  const claude = spawn('claude', claudeArgs, { stdio: 'inherit', shell: true });
+  const claude = spawn(claudeExe, claudeArgs, { stdio: 'inherit', shell: true });
   claude.on('exit', code => process.exit(code));
   return true;
 }
@@ -1234,12 +1284,16 @@ function renderManagementMode(state) {
 function renderConfigMenu(state) {
   const { configSelectedIndex, configStatus } = state;
 
+  // Get current Claude command for display
+  const currentClaudeCmd = state.config?.claudeCommand || getClaudeCommand();
+
   const configOptions = [
     { key: '1', name: 'Edit entries', description: 'Add, edit, remove, reorder entries' },
     { key: '2', name: 'Manage repositories', description: 'Show/hide repos from main menu' },
     { key: '3', name: 'Scan for repositories', description: 'Find all git repos in workspace' },
     { key: '4', name: 'Create desktop shortcut', description: 'Add launcher to desktop' },
     { key: '5', name: 'Edit startup modes', description: 'Configure Claude startup commands' },
+    { key: '6', name: `Claude command: ${currentClaudeCmd}`, description: 'Re-detect or set custom command' },
   ];
 
   const lines = [];
@@ -2135,7 +2189,7 @@ automatically provide the correct paths from your workspace root.
           break;
 
         case 'down':
-          state.configSelectedIndex = Math.min(4, state.configSelectedIndex + 1);
+          state.configSelectedIndex = Math.min(5, state.configSelectedIndex + 1);
           render(state);
           break;
 
@@ -2196,6 +2250,23 @@ automatically provide the correct paths from your workspace root.
             state.startupModesEditMode = 'list';
             state.startupModesEditSelectedIndex = 0;
             render(state);
+          } else if (state.configSelectedIndex === 5) {
+            // Re-detect Claude command
+            state.configStatus = 'Detecting Claude installation...';
+            render(state);
+            // Clear cached command to force re-detection
+            config.claudeCommand = null;
+            saveConfig(config);
+            const detected = detectClaudeCommand();
+            config.claudeCommand = detected;
+            state.config = config;
+            saveConfig(config);
+            state.configStatus = `Detected: ${detected}`;
+            render(state);
+            setTimeout(() => {
+              state.configStatus = null;
+              render(state);
+            }, 2000);
           }
           break;
 
@@ -2222,6 +2293,9 @@ automatically provide the correct paths from your workspace root.
             render(state);
           } else if (str === '5') {
             state.configSelectedIndex = 4;
+            render(state);
+          } else if (str === '6') {
+            state.configSelectedIndex = 5;
             render(state);
           }
       }
@@ -2833,8 +2907,13 @@ automatically provide the correct paths from your workspace root.
 async function runSetup() {
   console.log(`${ANSI.bold}${ANSI.cyan}Claude Root Launcher Setup${ANSI.reset}\n`);
 
+  // Detect Claude installation
+  console.log('Detecting Claude installation...');
+  const claudeCmd = detectClaudeCommand();
+  console.log(`${ANSI.green}Found:${ANSI.reset} ${claudeCmd}`);
+
   // Detect IDEs
-  console.log('Detecting IDEs...');
+  console.log('\nDetecting IDEs...');
   const ides = detectIDEs();
   if (ides.length > 0) {
     console.log(`${ANSI.green}Found:${ANSI.reset}`);
@@ -2859,6 +2938,7 @@ async function runSetup() {
 
     config = createDefaultConfig(reposData.repositories);
     config.ides = ides;
+    config.claudeCommand = claudeCmd;
 
     saveJson(paths.config, config);
     console.log(`${ANSI.green}Config saved to:${ANSI.reset} ${paths.config}`);
