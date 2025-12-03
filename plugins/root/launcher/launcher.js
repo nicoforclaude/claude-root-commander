@@ -45,13 +45,16 @@ const ANSI = {
   white: '\x1b[97m',    // Bright white
   gray: '\x1b[90m',     // Gray (dim)
   red: '\x1b[91m',      // Bright red
-
-  // Background colors
-  bgBlue: '\x1b[44m',
-  bgMagenta: '\x1b[45m',
-  bgCyan: '\x1b[46m',
-  bgGray: '\x1b[100m',
 };
+
+// UI constants
+const SEP60 = `${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`;
+const SEP40 = `${ANSI.cyan}${'='.repeat(40)}${ANSI.reset}`;
+
+function printScreen(lines) {
+  process.stdout.write(ANSI.clear);
+  console.log(lines.join('\n'));
+}
 
 // ============================================================================
 // CLI Argument Parsing
@@ -589,6 +592,20 @@ function detectIDEs() {
 // Git Operations
 // ============================================================================
 
+/**
+ * Execute git command in repo directory
+ * Returns trimmed output or null on error/missing .git
+ */
+function gitExec(repoPath, cmd, timeout = 5000) {
+  try {
+    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+    if (!fs.existsSync(path.join(fullPath, '.git'))) return null;
+    return execSync(cmd, { cwd: fullPath, encoding: 'utf8', timeout, stdio: 'pipe' }).trim();
+  } catch (e) {
+    return null;
+  }
+}
+
 function getGitStats(repoPath) {
   try {
     const fullPath = path.join(WORKSPACE_ROOT, repoPath);
@@ -705,38 +722,19 @@ function gitFetch(repoPath) {
  * Returns { branch, ahead, behind } or null
  */
 function getRemoteStatus(repoPath) {
-  try {
-    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
-    if (!fs.existsSync(path.join(fullPath, '.git'))) {
-      return null;
-    }
+  const branch = gitExec(repoPath, 'git rev-parse --abbrev-ref HEAD');
+  if (!branch) return null;
 
-    // Get current branch
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
-      cwd: fullPath,
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-
-    // Get ahead/behind counts
-    let ahead = 0, behind = 0;
-    try {
-      const result = execSync(`git rev-list --left-right --count HEAD...@{upstream}`, {
-        cwd: fullPath,
-        encoding: 'utf8',
-        timeout: 5000,
-      }).trim();
-      const parts = result.split(/\s+/);
-      ahead = parseInt(parts[0]) || 0;
-      behind = parseInt(parts[1]) || 0;
-    } catch (e) {
-      // No upstream configured
-    }
-
-    return { branch, ahead, behind };
-  } catch (e) {
-    return null;
+  // Get ahead/behind counts
+  let ahead = 0, behind = 0;
+  const result = gitExec(repoPath, 'git rev-list --left-right --count HEAD...@{upstream}');
+  if (result) {
+    const parts = result.split(/\s+/);
+    ahead = parseInt(parts[0]) || 0;
+    behind = parseInt(parts[1]) || 0;
   }
+
+  return { branch, ahead, behind };
 }
 
 /**
@@ -744,50 +742,15 @@ function getRemoteStatus(repoPath) {
  * Returns branch name string, defaults to 'main'
  */
 function detectDefaultBranch(repoPath) {
-  try {
-    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
-    if (!fs.existsSync(path.join(fullPath, '.git'))) {
-      return 'main';
-    }
+  // Try symbolic-ref first (most reliable - gets origin's default)
+  const ref = gitExec(repoPath, 'git symbolic-ref refs/remotes/origin/HEAD');
+  if (ref) return ref.replace('refs/remotes/origin/', '');
 
-    // Try symbolic-ref first (most reliable - gets origin's default)
-    try {
-      const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
-        cwd: fullPath,
-        encoding: 'utf8',
-        timeout: 5000,
-        stdio: 'pipe',
-      }).trim();
-      // Returns: refs/remotes/origin/main
-      return ref.replace('refs/remotes/origin/', '');
-    } catch (e) {
-      // Fallback: check if 'main' branch exists
-      try {
-        execSync('git rev-parse --verify main', {
-          cwd: fullPath,
-          encoding: 'utf8',
-          timeout: 5000,
-          stdio: 'pipe',
-        });
-        return 'main';
-      } catch (e2) {
-        // Check if 'master' branch exists
-        try {
-          execSync('git rev-parse --verify master', {
-            cwd: fullPath,
-            encoding: 'utf8',
-            timeout: 5000,
-            stdio: 'pipe',
-          });
-          return 'master';
-        } catch (e3) {
-          return 'main'; // default assumption
-        }
-      }
-    }
-  } catch (e) {
-    return 'main';
-  }
+  // Fallback: check if 'main' or 'master' branch exists
+  if (gitExec(repoPath, 'git rev-parse --verify main')) return 'main';
+  if (gitExec(repoPath, 'git rev-parse --verify master')) return 'master';
+
+  return 'main'; // default assumption
 }
 
 /**
@@ -799,27 +762,16 @@ function getStatusVsMain(repoPath, currentBranch, defaultBranch) {
     return { ahead: 0, behind: 0, onMain: true, error: false };
   }
 
-  try {
-    const fullPath = path.join(WORKSPACE_ROOT, repoPath);
+  const result = gitExec(repoPath, `git rev-list --left-right --count ${currentBranch}...${defaultBranch}`);
+  if (!result) return { ahead: 0, behind: 0, onMain: false, error: true };
 
-    // Compare current branch to default branch
-    const result = execSync(
-      `git rev-list --left-right --count ${currentBranch}...${defaultBranch}`,
-      {
-        cwd: fullPath,
-        encoding: 'utf8',
-        timeout: 5000,
-        stdio: 'pipe',
-      }
-    ).trim();
-
-    const parts = result.split(/\s+/);
-    const ahead = parseInt(parts[0]) || 0;
-    const behind = parseInt(parts[1]) || 0;
-    return { ahead, behind, onMain: false, error: false };
-  } catch (e) {
-    return { ahead: 0, behind: 0, onMain: false, error: true };
-  }
+  const parts = result.split(/\s+/);
+  return {
+    ahead: parseInt(parts[0]) || 0,
+    behind: parseInt(parts[1]) || 0,
+    onMain: false,
+    error: false,
+  };
 }
 
 /**
@@ -967,100 +919,68 @@ function createOtherManagedEntry(otherCount) {
 // Launcher Logic
 // ============================================================================
 
-function launch(entry, mode, claudeStartupMode, ides) {
+const DETACHED_SPAWN = { detached: true, stdio: 'ignore' };
+
+/**
+ * Launch entry
+ * @param {boolean} detached - If true, spawn in new window and return {success, message}
+ *                            If false, run Claude in current terminal and return boolean
+ */
+function launch(entry, mode, claudeStartupMode, ides, detached = false) {
   const fullPath = path.join(WORKSPACE_ROOT, entry.path);
 
   if (!fs.existsSync(fullPath)) {
+    if (detached) return { success: false, message: `Path not found: ${fullPath}` };
     console.log(`\n${ANSI.red}Error: Path not found: ${fullPath}${ANSI.reset}`);
     return false;
   }
 
-  // Find IDE shortcut
   const ide = ides.find(i => i.name === entry.ide) || ides[0];
 
+  // IDE modes
   if (mode === 'IDE' || mode === 'Claude + IDE') {
     if (!ide) {
+      if (detached) return { success: false, message: 'No IDE configured' };
       console.log(`\n${ANSI.red}Error: No IDE configured${ANSI.reset}`);
       return false;
     }
 
-    console.log(`\n${ANSI.magenta}Opening ${entry.name} in ${ide.name}...${ANSI.reset}`);
-    spawn('cmd', ['/c', 'start', '', ide.shortcut, fullPath], { detached: true, stdio: 'ignore' });
+    if (!detached) console.log(`\n${ANSI.magenta}Opening ${entry.name} in ${ide.name}...${ANSI.reset}`);
+    spawn('cmd', ['/c', 'start', '', ide.shortcut, fullPath], DETACHED_SPAWN);
 
     if (mode === 'IDE') {
-      return true;
+      return detached ? { success: true, message: `Opened in ${ide.name}` } : true;
     }
   }
 
+  // PowerShell mode
   if (mode === 'PowerShell') {
-    console.log(`\n${ANSI.blue}Opening PowerShell in ${entry.name}...${ANSI.reset}`);
-    spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command', `Set-Location '${fullPath}'`], { detached: true, stdio: 'ignore' });
-    return true;
+    if (!detached) console.log(`\n${ANSI.blue}Opening PowerShell in ${entry.name}...${ANSI.reset}`);
+    spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command', `Set-Location '${fullPath}'`], DETACHED_SPAWN);
+    return detached ? { success: true, message: 'Opened PowerShell' } : true;
   }
 
-  // Claude mode
-  const claudeArgs = [];
+  // Claude modes
   const command = parseStartupMode(claudeStartupMode);
 
-  let msg = 'Running Claude';
-  if (command) {
-    claudeArgs.push(command);
-    msg = `Running Claude with ${command}`;
+  if (detached) {
+    // Spawn Claude in new PowerShell window
+    const claudeCmd = command ? `claude ${command}` : 'claude';
+    spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command',
+      `Set-Location '${fullPath}'; ${claudeCmd}`], DETACHED_SPAWN);
+    const modeDesc = mode === 'Claude + IDE' ? `${ide?.name || 'IDE'} + Claude` : 'Claude';
+    return { success: true, message: `Opened ${modeDesc}` };
   }
 
-  console.log(`\n${ANSI.green}${msg}...${ANSI.reset}`);
+  // Run Claude in current terminal (takes over)
+  const claudeArgs = command ? [command] : [];
+  console.log(`\n${ANSI.green}Running Claude${command ? ` with ${command}` : ''}...${ANSI.reset}`);
   process.chdir(fullPath);
-
-  // Release stdin completely before spawning Claude
   process.stdin.removeAllListeners('keypress');
   process.stdin.pause();
-
-  // Execute claude (replace current process)
   const claude = spawn('claude', claudeArgs, { stdio: 'inherit', shell: true });
   claude.on('exit', code => process.exit(code));
   return true;
-}
-
-/**
- * Launch entry in detached mode (new window), keeping launcher open.
- * Used for Shift+Enter multi-select workflow.
- */
-function launchDetached(entry, mode, claudeStartupMode, ides) {
-  const fullPath = path.join(WORKSPACE_ROOT, entry.path);
-
-  if (!fs.existsSync(fullPath)) {
-    return { success: false, message: `Path not found: ${fullPath}` };
-  }
-
-  const ide = ides.find(i => i.name === entry.ide) || ides[0];
-
-  // IDE modes - spawn detached
-  if (mode === 'IDE' || mode === 'Claude + IDE') {
-    if (!ide) {
-      return { success: false, message: 'No IDE configured' };
-    }
-    spawn('cmd', ['/c', 'start', '', ide.shortcut, fullPath], { detached: true, stdio: 'ignore' });
-
-    if (mode === 'IDE') {
-      return { success: true, message: `Opened in ${ide.name}` };
-    }
-  }
-
-  // PowerShell mode - spawn detached
-  if (mode === 'PowerShell') {
-    spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command', `Set-Location '${fullPath}'`], { detached: true, stdio: 'ignore' });
-    return { success: true, message: 'Opened PowerShell' };
-  }
-
-  // Claude modes - spawn in new PowerShell window
-  const command = parseStartupMode(claudeStartupMode);
-  const claudeCmd = command ? `claude ${command}` : 'claude';
-
-  spawn('cmd', ['/c', 'start', 'powershell', '-NoExit', '-Command',
-    `Set-Location '${fullPath}'; ${claudeCmd}`], { detached: true, stdio: 'ignore' });
-
-  const modeDesc = mode === 'Claude + IDE' ? `${ide?.name || 'IDE'} + Claude` : 'Claude';
-  return { success: true, message: `Opened ${modeDesc}` };
 }
 
 // ============================================================================
@@ -1105,19 +1025,18 @@ function renderFirstRunPrompt(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.cyan}Welcome to Claude Launcher!${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push('Would you like to create a desktop shortcut?');
   lines.push('');
   lines.push(`${ANSI.dim}This lets you launch directly from your desktop.${ANSI.reset}`);
   lines.push('');
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`${ANSI.green}y${ANSI.reset} - Yes, create shortcut`);
   lines.push(`${ANSI.yellow}n${ANSI.reset} - No, skip (can create later in config)`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function formatTimeAgo(timestamp) {
@@ -1136,7 +1055,7 @@ function renderMainMenu(state) {
 
   // Header (Cyan like original)
   lines.push(`\n${ANSI.cyan}Select a repository to run:${ANSI.reset}`);
-  lines.push(`${ANSI.cyan}${'='.repeat(40)}${ANSI.reset}`);
+  lines.push(SEP40);
 
   // Entry list
   flattenedEntries.forEach((item, i) => {
@@ -1190,7 +1109,7 @@ function renderMainMenu(state) {
     lines.push(`${prefix}${num} ${expandIndicator}${indent}${nameColor}${displayName}${ANSI.reset}${ideSuffix}${stats}`);
   });
 
-  lines.push(`${ANSI.cyan}${'='.repeat(40)}${ANSI.reset}`);
+  lines.push(SEP40);
 
   // Compact mode display: [Claude][none]
   const modeColors = {
@@ -1245,8 +1164,7 @@ function renderMainMenu(state) {
   }
 
   // Clear and print
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderOtherManagedMode(state) {
@@ -1255,7 +1173,7 @@ function renderOtherManagedMode(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.yellow}Other Managed Repositories:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   otherManagedRepos.forEach((repo, i) => {
     const isSelected = i === otherManagedSelectedIndex;
@@ -1272,12 +1190,11 @@ function renderOtherManagedMode(state) {
     lines.push(`${prefix} ${num} ${name}${padding}${stats}`);
   });
 
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`${ANSI.dim}Enter: select | Up/Down: navigate | Esc/q: back${ANSI.reset}`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderManagementMode(state) {
@@ -1286,7 +1203,7 @@ function renderManagementMode(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.magenta}Manage Repositories:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   allRepos.forEach((repo, i) => {
     const isSelected = i === managementSelectedIndex;
@@ -1307,12 +1224,11 @@ function renderManagementMode(state) {
     lines.push(`${prefix} ${checkbox} ${num} ${name}${hiddenLabel}`);
   });
 
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`${ANSI.dim}Space: toggle | Enter: save & exit | Esc/q: cancel${ANSI.reset}`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderConfigMenu(state) {
@@ -1329,7 +1245,7 @@ function renderConfigMenu(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.blue}Configuration:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   configOptions.forEach((opt, i) => {
     const isSelected = i === configSelectedIndex;
@@ -1343,7 +1259,7 @@ function renderConfigMenu(state) {
     lines.push(`     ${desc}`);
   });
 
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   // Status message
   if (configStatus) {
@@ -1354,8 +1270,7 @@ function renderConfigMenu(state) {
   lines.push('');
   lines.push(`${ANSI.dim}Enter: select | Up/Down: navigate | Esc/q: back${ANSI.reset}`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderGroupConfirm(state) {
@@ -1363,7 +1278,7 @@ function renderGroupConfirm(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.yellow}Create Group:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`Create group "${ANSI.cyan}${groupConfirmPrefix}${ANSI.reset}" with these entries?`);
   lines.push('');
@@ -1373,12 +1288,11 @@ function renderGroupConfirm(state) {
   });
 
   lines.push('');
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`${ANSI.green}y${ANSI.reset}: create group | ${ANSI.red}n${ANSI.reset}/Esc: cancel`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderAddEntry(state) {
@@ -1386,7 +1300,7 @@ function renderAddEntry(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.green}Add Entry:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   if (addEntryOptions.length === 0) {
     lines.push(`${ANSI.dim}  No managed repos available to add${ANSI.reset}`);
@@ -1401,12 +1315,11 @@ function renderAddEntry(state) {
     });
   }
 
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`${ANSI.dim}Enter: add | Up/Down: navigate | Esc/q: cancel${ANSI.reset}`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderNestPicker(state) {
@@ -1414,7 +1327,7 @@ function renderNestPicker(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.magenta}Move Entry:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push(`Moving: ${ANSI.cyan}${nestPickerEntry.name}${ANSI.reset}`);
   lines.push('');
   lines.push('Select destination:');
@@ -1430,12 +1343,11 @@ function renderNestPicker(state) {
     lines.push(`${prefix} ${i + 1}. ${indent}${name}`);
   });
 
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`${ANSI.dim}Enter: move here | Up/Down: navigate | Esc/q: cancel${ANSI.reset}`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderEditName(state) {
@@ -1443,18 +1355,17 @@ function renderEditName(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.blue}Edit Name:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`Entry: ${ANSI.dim}${editNameEntry.path || '(group)'}${ANSI.reset}`);
   lines.push('');
   lines.push(`Name: ${ANSI.cyan}${editNameBuffer}${ANSI.reset}${ANSI.bold}_${ANSI.reset}`);
   lines.push('');
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push('');
   lines.push(`${ANSI.dim}Type to edit | Enter: save | Esc: cancel${ANSI.reset}`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderEntriesEditMode(state) {
@@ -1466,7 +1377,7 @@ function renderEntriesEditMode(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.green}Edit Entries:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   if (flatEdit.length === 0) {
     lines.push(`${ANSI.dim}  No entries configured${ANSI.reset}`);
@@ -1506,7 +1417,7 @@ function renderEntriesEditMode(state) {
     });
   }
 
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   // Selected entry card
   const selectedItem = flatEdit[entriesEditSelectedIndex];
@@ -1525,12 +1436,11 @@ function renderEntriesEditMode(state) {
     lines.push('');
   }
 
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
   lines.push(`${ANSI.dim}u/d: move | a: add | x: remove | g: group | n: nest | f: flatten | e: rename | i: IDE${ANSI.reset}`);
   lines.push(`${ANSI.dim}Left/Right: collapse/expand | Enter: save | Esc/q: cancel${ANSI.reset}`);
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderStartupModesEdit(state) {
@@ -1538,7 +1448,7 @@ function renderStartupModesEdit(state) {
   const lines = [];
 
   lines.push(`${ANSI.bold}${ANSI.green}Edit Startup Modes:${ANSI.reset}`);
-  lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+  lines.push(SEP60);
 
   if (editingName) {
     // Inline editing mode
@@ -1564,14 +1474,13 @@ function renderStartupModesEdit(state) {
       });
     }
 
-    lines.push(`${ANSI.dim}${'='.repeat(60)}${ANSI.reset}`);
+    lines.push(SEP60);
     lines.push('');
     lines.push(`${ANSI.dim}a: add | x: remove | e: edit | u/d: move${ANSI.reset}`);
     lines.push(`${ANSI.dim}Enter: save | Esc/q: cancel${ANSI.reset}`);
   }
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderRemoteStatus(state) {
@@ -1635,8 +1544,7 @@ function renderRemoteStatus(state) {
     lines.push(`${ANSI.dim}Space: show files | f: fetch all | Esc/q: back${ANSI.reset}`);
   }
 
-  process.stdout.write(ANSI.clear);
-  console.log(lines.join('\n'));
+  printScreen(lines);
 }
 
 function renderRemoteTable(lines, state) {
@@ -2893,7 +2801,7 @@ automatically provide the correct paths from your workspace root.
         if (str === 'n') {
           const nSelectedItem = state.flattenedEntries[state.selectedIndex];
           if (nSelectedItem?.entry.path) {
-            const result = launchDetached(nSelectedItem.entry, state.mode, state.claudeStartupMode, state.ides);
+            const result = launch(nSelectedItem.entry, state.mode, state.claudeStartupMode, state.ides, true);
             state.lastLaunchMessage = result.success
               ? `${result.message}: ${nSelectedItem.entry.name}`
               : `Error: ${result.message}`;
