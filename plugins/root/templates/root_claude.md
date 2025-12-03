@@ -53,7 +53,7 @@ You are working with use of skills and agents.
 When user asks you to do something, the first thing you do is to carefully analyze what skills and agents should be triggered.
 When user says "Read something" it means he asks for opinion, not "read" in technical sense.
 When user says fix, you need to understand that it implies proactivity and involvement of "interview if needed" (with interviewing skill).
-Before starting any work on human-readable files (docs, code, md files for Claude setup, etc.), make sure you activate **senior-editor** skill before doing actual work, and especially showing to user or writing results to file (whichever first).
+Before starting any work on human-readable files (docs, code, md files for Claude setup, etc.), make sure you activate **nico-dev:editing** skill before doing actual work, and especially showing to user or writing results to file (whichever first).
 
 #### Use of specific skills and agents
 
