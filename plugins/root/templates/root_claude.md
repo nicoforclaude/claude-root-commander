@@ -40,6 +40,7 @@ When user mentions "X skill", map short names to actual skill names:
 | "file", "files", "win", "paths" | `windows-shell:windows-shell` | windows-shell@claude-windows-shell | Windows path handling |
 | "joke" | `joke-teller:joke-teller` | joke-teller@claude-humor | Programming jokes |
 | "roast" | `roaster:roasting` | roaster@claude-humor | Playful programming roasts |
+| "NFC", "notes for claude" | (inline pattern) | N/A | In-file task instructions embedded in documents |
 
 **Usage:** When user says "use editor skill", invoke `Skill(skill: "nico-dev:editing")`
 
@@ -53,6 +54,7 @@ You are working with use of skills and agents.
 When user asks you to do something, the first thing you do is to carefully analyze what skills and agents should be triggered.
 When user says "Read something" it means he asks for opinion, not "read" in technical sense.
 When user says fix, you need to understand that it implies proactivity and involvement of "interview if needed" (with interviewing skill).
+When user says "read NFC" or mentions "NFC", look for "Notes for Claude:" blocks in the referenced file and treat as task instructions.
 Before starting any work on human-readable files (docs, code, md files for Claude setup, etc.), make sure you activate **nico-dev:editing** skill before doing actual work, and especially showing to user or writing results to file (whichever first).
 
 #### Use of specific skills and agents
@@ -170,6 +172,38 @@ The subagent can say "no, this is all business logic" or "wait, this timing code
 - Applies to ALL file types: text, code, markup, templates, etc.
 - Evaluates readability, compactness, and cohesion
 - Use when asked "what do you think" or "review this"
+
+
+### Notes for Claude (NFC) Pattern
+
+**Recognition**: When reading any file, look for blocks formatted as:
+```text
+Notes for Claude:
+[instructions/context here]
+```
+
+**What NFC is**: Inline task instructions embedded directly in documents. User may reference these as "NFC" (e.g., "read NFC", "see NFC in that file").
+
+**Behavior**:
+1. **Read as task instructions** - Treat NFC content as context and guidance for working on this file
+2. **Act on instructions** - Follow the guidance provided in the block
+3. **Use as communication channel** - NFC blocks are bidirectional: user → Claude (instructions) and Claude → user (status/questions)
+
+**Cleanup Protocol**:
+- **Task complete + confident**: Remove the NFC block entirely
+- **Task complete + questions/doubts**: Update block with status instead of removing:
+  ```text
+  Notes for Claude:
+  [DONE] Original task description
+
+  Status: Completed with questions
+  - Question about X?
+  - Uncertain about Y
+  ```
+- **Partial completion**: Update with progress status in the block
+- **Blocked**: Add blocker info to the block for user visibility
+
+**Key Point**: When uncertain, don't delete - update the NFC block with your status/questions so user can see your progress and respond.
 
 
 ### Research and Clarification Guidelines
