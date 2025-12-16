@@ -152,6 +152,56 @@ The subagent can say "no, this is all business logic" or "wait, this timing code
 
 **User acknowledgment is NOT permission to commit.** Always wait for explicit commit instruction.
 
+### Test Execution Safety
+
+**CRITICAL: NEVER run admin tests as part of regular test execution**
+
+The workspace uses a multi-tier test architecture where admin tests are **maintenance scripts disguised as tests** - they modify databases, download records, or perform cleanup operations.
+
+#### Test File Patterns
+
+| Pattern | Type | Safe to run? |
+|---------|------|--------------|
+| `*.test.ts` / `*.spec.ts` | Unit tests | ✅ Yes |
+| `*.integration.test.ts` | Integration tests | ⚠️ With caution |
+| `*.admin.test.ts` | Admin/maintenance scripts | ❌ **NEVER** |
+| `*Test.kt` with `@Tag("admin")` | Kotlin admin tests | ❌ **NEVER** |
+
+#### Safe Test Commands
+
+**TypeScript (vitest):**
+```bash
+# SAFE - runs only unit tests
+vitest --run --project unit
+
+# DANGEROUS - may include admin tests
+vitest --run              # ❌ Avoid
+vitest *.test.ts          # ❌ May match admin tests
+```
+
+**Kotlin (Gradle):**
+```bash
+# SAFE - excludes admin by default
+gradle test
+
+# DANGEROUS - runs specific admin test
+gradle test --tests "*AdminTest*"  # ❌ Avoid
+```
+
+#### What Admin Tests Do (why they're dangerous)
+
+- `populateRatings.admin.test.ts` - Modifies rating database
+- `downloadBotDbRecs.admin.test.ts` - Downloads from production
+- `dangerAll.admin.test.ts` - Cleanup operations
+- `MatingSituationsAdminTest.kt` - Database management
+
+#### When Running Tests
+
+1. **Always use** `--project unit` flag with vitest
+2. **Never run** individual test files matching `*.admin.test.ts`
+3. **Ask user** before running any test that might be an admin test
+4. **Check filename** - if it contains "admin", "danger", "cleanup", "populate" → don't run
+
 ### Scope Management
 
 **When doing implementation work** (fixing bugs, implementing features, modifying code):
