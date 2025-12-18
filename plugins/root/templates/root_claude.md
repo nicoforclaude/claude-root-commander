@@ -158,6 +158,13 @@ The subagent can say "no, this is all business logic" or "wait, this timing code
 
 The workspace uses a multi-tier test architecture where admin tests are **maintenance scripts disguised as tests** - they modify databases, download records, or perform cleanup operations.
 
+#### Safety Rules (Code Conventions)
+
+1. **Always `dryRun: true`** - Default config must prevent writes
+2. **Always `.skip()`** - Tests must be skipped by default to prevent accidental execution
+3. **Never in package.json** - No npm/yarn scripts should run admin tests
+4. **Manual execution only** - Run explicitly with full awareness
+
 #### Test File Patterns
 
 | Pattern | Type | Safe to run? |
@@ -166,6 +173,13 @@ The workspace uses a multi-tier test architecture where admin tests are **mainte
 | `*.integration.test.ts` | Integration tests | ⚠️ With caution |
 | `*.admin.test.ts` | Admin/maintenance scripts | ❌ **NEVER** |
 | `*Test.kt` with `@Tag("admin")` | Kotlin admin tests | ❌ **NEVER** |
+
+#### Before Running Admin Tests
+
+1. Remove `.skip()` from the specific test
+2. Set `dryRun: false` in CONFIG
+3. Run the test
+4. **Restore both guards immediately after**
 
 #### Safe Test Commands
 
