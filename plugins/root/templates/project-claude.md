@@ -13,6 +13,23 @@
 
 ---
 
+## Linting Scripts
+
+*Optional section: Document exact lint script names for your project*
+
+| Script | Purpose |
+|--------|---------|
+| `yarn lint` | Check all files |
+| `yarn lint:changed` | Check changed files only |
+| `yarn lint:changed:fix` | Fix changed files |
+| `yarn lint:fix:safe` | Fix all files (safe only) |
+
+> **Purpose:** The linter-agent reads this section to know exact script names.
+> Adjust the table to match your actual `package.json` scripts.
+> **IMPORTANT:** Use exact names - agents must not guess variations.
+
+---
+
 ## Skills and Agents
 
 *Optional section: Document project-specific usage of skills/agents*
