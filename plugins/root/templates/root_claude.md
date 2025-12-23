@@ -17,7 +17,7 @@ These configuration values are available to all child projects:
 ///INSTRUCTION LINE - remove after copying the template, fill with actual path like `C:\OwnersRepositories\` on next line
 CLAUDE_MAIN_WORKSPACE_ROOT = ''
 ///INSTRUCTION LINE - automatically derived from CLAUDE_MAIN_WORKSPACE_ROOT
-CLAUDE_PLUGINS_ROOT = CLAUDE_MAIN_WORKSPACE_ROOT + '\.localData\claude-plugins'
+CLAUDE_PLUGINS_ROOT = CLAUDE_MAIN_WORKSPACE_ROOT + '/.localData/claude-plugins'
 
 ## Quick Reference
 
@@ -215,6 +215,54 @@ gradle test --tests "*AdminTest*"  # ❌ Avoid
 2. **Never run** individual test files matching `*.admin.test.ts`
 3. **Ask user** before running any test that might be an admin test
 4. **Check filename** - if it contains "admin", "danger", "cleanup", "populate" → don't run
+
+### TypeScript Project Safety
+
+**CRITICAL: Protect build artifacts and use proper build tooling**
+
+#### Dist Folder Protection
+
+**NEVER remove `dist`, `build`, or output folders** unless ALL conditions are met:
+1. User explicitly requested folder removal (not implied by "cleanup" or similar)
+2. User confirmed after being warned about consequences
+3. It's a standalone task, NOT part of a bigger operation
+
+**Examples of FORBIDDEN actions:**
+- Removing `dist/` as part of "clean up JS files"
+- Deleting `build/` during "fix TypeScript errors"
+- Clearing output folders during any refactoring task
+
+**When user asks to "clean" something:** Ask what specifically they want cleaned. Never assume output folders should be deleted.
+
+#### Build Commands
+
+**NEVER run `tsc` directly** to compile TypeScript projects.
+
+**Why this is dangerous:** Running `tsc` without proper configuration creates stray `.js` files alongside `.ts` source files. These artifacts are:
+- Hard to identify (mixed with source files)
+- Costly to clean up (must avoid deleting legitimate files)
+- A serious maintenance burden
+
+**Always use the project's configured package manager and scripts:**
+```bash
+# CORRECT - use configured scripts with project's package manager
+npm run build          # if project uses npm
+yarn build             # if project uses yarn
+pnpm build             # if project uses pnpm
+
+# FORBIDDEN - direct tsc usage
+tsc                    # ❌ Never
+tsc --build            # ❌ Never
+tsc -p tsconfig.json   # ❌ Never
+npx tsc                # ❌ Never
+```
+
+**How to identify the package manager:**
+- `package-lock.json` exists → use `npm`
+- `yarn.lock` exists → use `yarn`
+- `pnpm-lock.yaml` exists → use `pnpm`
+
+**If no build script exists:** Escalate to user. Do not create or run `tsc` commands.
 
 ### Scope Management
 
