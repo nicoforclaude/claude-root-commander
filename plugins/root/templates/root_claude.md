@@ -41,6 +41,7 @@ When user mentions "X skill", map short names to actual skill names:
 | "joke" | `joke-teller:joke-teller` | joke-teller@claude-humor | Programming jokes |
 | "roast" | `roaster:roasting` | roaster@claude-humor | Playful programming roasts |
 | "NFC", "notes for claude" | (inline pattern) | N/A | In-file task instructions embedded in documents |
+| "ooo", "OOO" | (inline pattern) | N/A | Options, Options, Options - structured problem-solving workflow |
 
 **Usage:** When user says "use editor skill", invoke `Skill(skill: "nico-dev:editing")`
 
@@ -316,6 +317,65 @@ Notes for Claude:
 - **Blocked**: Add blocker info to the block for user visibility
 
 **Key Point**: When uncertain, don't delete - update the NFC block with your status/questions so user can see your progress and respond.
+
+
+### OOO Pattern
+
+**Recognition**: Keyword "ooo" or "OOO" in problem statement (e.g., "auth system ooo", "OOO: how to structure the API?").
+
+**What OOO means**: "Options, Options, Options" - a structured workflow that expands complex problems into many decision options before implementation.
+
+**Intent**: Capture user input BEFORE implementation explodes into code. AI is powerful at identifying decision points - places where branching happens. Instead of AI making silent choices buried in long code output, OOO surfaces all branching points to the user first. User guides direction with explicit choices, then implementation follows. This prevents rework from wrong AI assumptions.
+
+**Why this matters**:
+- AI spots branching points humans might miss
+- Silent AI decisions → hidden assumptions → costly rework
+- Explicit options → user control → aligned implementation
+- 10 minutes of OOO saves hours of rewriting
+
+**Typo handling**:
+- Exact match (`ooo`, `OOO`, `oo`) → proceed immediately
+- Unclear pattern → ask: "Did you mean OOO pattern for this problem?"
+
+**Phases**:
+
+| # | Phase | Action |
+|---|-------|--------|
+| 1 | Discover | Find all sources, references, affected code. Output structured list + confidence % |
+| 2 | Optionize | Create 5-20 decision points with 2-4 options each |
+| 3 | Obtain feedback | Interview user preferences via `AskUserQuestion` |
+| → | Document | Output planning file with decisions made |
+
+**Discovery phase details**:
+
+Methods: keyword search, file pattern scanning, dependency traversing, call hierarchy analysis
+
+Output format:
+```
+**Discovery: [topic]**
+Confidence: X% that all related found
+
+Found:
+- `path/to/file.ts:functionName` - why relevant
+- ...
+
+Search methods: [keywords], [patterns], [traversals]
+```
+
+If confidence < 70%: ask user "Continue searching or proceed with current findings?"
+
+For planning docs: add "Sources and References" as first section
+
+**Optionize coverage** (what to generate options for):
+- Goals and scope
+- Naming conventions
+- File locations and paths
+- API signatures and interfaces
+- Implementation approaches
+
+**Document location**: Infer from context → default `/docs/planning/` → ask if unclear
+
+**When to use**: When user adds "ooo" to any problem requiring structured decision-making before implementation.
 
 
 ### Research and Clarification Guidelines
