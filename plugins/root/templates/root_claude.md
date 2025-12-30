@@ -370,7 +370,14 @@ Search methods: [keywords], [patterns], [traversals]
 
 If confidence < 70%: ask user "Continue searching or proceed with current findings?"
 
-For planning docs: add "Sources and References" as first section
+For planning docs structure:
+1. **Steps** - numbered checklist of implementation steps (track progress here)
+2. **Discovery & Sources** - confidence %, search methods, files/functions/dependencies
+3. **Decision Points** - options presented and user's chosen direction
+4. **Code Changes** - BEFORE/AFTER snippets (validated, never illustrative)
+5. **AI Work Checklist** - success criteria validation before completion
+
+Additional sections may be added when content significance requires it.
 
 **Verification phase details**:
 
@@ -382,6 +389,9 @@ Before writing any planning document with code references:
 When showing BEFORE/AFTER code in suggestions:
 - BEFORE snippet must be copied from actual file (use Read tool first)
 - Never reconstruct BEFORE from memory
+- If cannot Read a file, **escalate to user** - don't invent or skip silently
+- **NEVER use disclaimers** like "illustrative", "pattern", "approximate" - this indicates validation failure
+- Red flag phrases to avoid: "will require reading", "at implementation time", "based on expected structure"
 
 **Optionize coverage** (what to generate options for):
 - Goals and scope
@@ -399,6 +409,8 @@ When showing BEFORE/AFTER code in suggestions:
 | Paths exist | Every `path/to/file` reference verified via Read or Glob |
 | Signatures match | Function names, params, return types match actual code |
 | BEFORE accurate | Any BEFORE code snippets copied from actual file, not reconstructed |
+| No disclaimers | Zero "illustrative", "approximate", "at implementation time" phrases |
+| Doc maintained | Implemented items removed from planning doc (keep doc in sync with code) |
 | Confidence met | Discovery confidence >= 70% or user approved proceeding |
 | Options complete | All decision points have 2-4 concrete options |
 | User confirmed | All major decisions confirmed via AskUserQuestion |
