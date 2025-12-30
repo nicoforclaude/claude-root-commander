@@ -344,6 +344,7 @@ Notes for Claude:
 | 1 | Discover | Find all sources, references, affected code. Output structured list + confidence % |
 | 2 | Optionize | Create 5-20 decision points with 2-4 options each |
 | 3 | Obtain feedback | Interview user preferences via `AskUserQuestion` |
+| 4 | Verify | Validate all paths/signatures exist before documenting |
 | → | Document | Output planning file with decisions made |
 
 **Discovery phase details**:
@@ -362,9 +363,25 @@ Found:
 Search methods: [keywords], [patterns], [traversals]
 ```
 
+**Output compression**:
+- Group 3+ files in same directory as `path/* (N files)` instead of individual listing
+- Example: `src/components/* (7 files)` rather than listing each file
+- Expand to individual files only when user requests or specific function names needed
+
 If confidence < 70%: ask user "Continue searching or proceed with current findings?"
 
 For planning docs: add "Sources and References" as first section
+
+**Verification phase details**:
+
+Before writing any planning document with code references:
+1. **Read files** - Must Read any file before citing its path or function signature
+2. **Validate signatures** - Function names, parameters, return types must match actual code
+3. **Check paths** - All file paths must exist in codebase
+
+When showing BEFORE/AFTER code in suggestions:
+- BEFORE snippet must be copied from actual file (use Read tool first)
+- Never reconstruct BEFORE from memory
 
 **Optionize coverage** (what to generate options for):
 - Goals and scope
@@ -374,6 +391,17 @@ For planning docs: add "Sources and References" as first section
 - Implementation approaches
 
 **Document location**: Infer from context → default `/docs/planning/` → ask if unclear
+
+**Success criteria** (all must pass):
+
+| Check | Validation |
+|-------|------------|
+| Paths exist | Every `path/to/file` reference verified via Read or Glob |
+| Signatures match | Function names, params, return types match actual code |
+| BEFORE accurate | Any BEFORE code snippets copied from actual file, not reconstructed |
+| Confidence met | Discovery confidence >= 70% or user approved proceeding |
+| Options complete | All decision points have 2-4 concrete options |
+| User confirmed | All major decisions confirmed via AskUserQuestion |
 
 **When to use**: When user adds "ooo" to any problem requiring structured decision-making before implementation.
 
