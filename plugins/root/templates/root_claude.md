@@ -47,6 +47,16 @@ When user mentions "X skill", map short names to actual skill names:
 
 **Note:** Skills marked "project" are project-level skills, others are from installed plugins.
 
+### Abbreviations
+
+User may use these abbreviations in messages. Recognize and apply the associated behaviour.
+
+| Abbreviation | Meaning | Behaviour |
+|---|---|---|
+| AMCI | Ask Me to Confirm Intent | Before acting, describe what you plan to do and wait for user confirmation |
+| NFC | Notes for Claude | Look for `Notes for Claude:` blocks in referenced files and treat as task instructions (see NFC Pattern section) |
+| OOO | Options, Options, Options | Expand the problem into structured decision points before implementation (see OOO Pattern section) |
+
 ## Key guidelines
 
 ### Critical: Use of skills and agents to perform tasks
