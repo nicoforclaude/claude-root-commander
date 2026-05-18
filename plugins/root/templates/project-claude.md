@@ -42,6 +42,37 @@ Examples:
 
 ---
 
+## Code Review Requirements
+
+### Issues Overview Table
+
+At the start of every code review response, output a summary table:
+
+| # | File | Severity | Issue |
+|---|------|----------|-------|
+| 1 | `src/lib/api/vmApi.svelte.ts` | 🔴 Critical | Null check missing before access |
+| 2 | `src/routes/dashboard/+page.svelte` | 🟡 Warning | Unused import |
+| 3 | `src/stores/userStore.ts` | 🔵 Info | Consider extracting helper |
+
+Severity levels and emoji set are flexible — adjust categories and icons to fit the review context.
+
+> **Why:** Reviewers need an at-a-glance map of all issues before reading details.
+> Without it, the scope of a review is only revealed after reading the entire response.
+
+---
+
+### File Path Resolution
+
+When a review comment references a file by bare name (e.g., `vmApi.svelte.ts`):
+1. Use `Glob` to find the full path from repo root
+2. Always cite the full path — e.g., `src/lib/api/vmApi.svelte.ts`
+3. Never leave a bare filename without a resolved path
+
+> **Why:** Projects contain hundreds of files. A bare filename forces the developer
+> to search manually — full paths allow immediate navigation in any IDE or editor.
+
+---
+
 ## Exceptions: Imported Code
 
 *Optional section: Document code that should NOT be modified*

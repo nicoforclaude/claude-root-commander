@@ -21,7 +21,7 @@ if (-not (Test-Path $sourcePath)) {
 }
 
 # Read the template content
-$content = Get-Content -Path $sourcePath -Raw
+$content = Get-Content -Path $sourcePath -Raw -Encoding utf8
 
 # Remove INSTRUCTION lines
 $lines = $content -split "`r?`n"

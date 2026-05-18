@@ -54,8 +54,12 @@ User may use these abbreviations in messages. Recognize and apply the associated
 | Abbreviation | Meaning | Behaviour |
 |---|---|---|
 | AMCI | Ask Me to Confirm Intent | Before acting, describe what you plan to do and wait for user confirmation |
+| ACI | Ask, Confirm Intent | Shorthand for AMCI — describe plan and wait for confirmation |
 | NFC | Notes for Claude | Look for `Notes for Claude:` blocks in referenced files and treat as task instructions (see NFC Pattern section) |
 | OOO | Options, Options, Options | Expand the problem into structured decision points before implementation (see OOO Pattern section) |
+| IL | Implementation Layers | Break planning into incremental, reviewable layers (see IL Pattern section) |
+| LHF | Low Hanging Fruit | Hunt for super easy, high-value improvements in the current scope |
+| SST | Single Source of Truth | Avoid repeating information that already exists in code or an authoritative source — reference it instead. Temporary duplication near context is acceptable, but remove it after the PR or once the work stabilizes long-term. |
 
 ## Key guidelines
 
@@ -426,6 +430,36 @@ When showing BEFORE/AFTER code in suggestions:
 | User confirmed | All major decisions confirmed via AskUserQuestion |
 
 **When to use**: When user adds "ooo" to any problem requiring structured decision-making before implementation.
+
+
+### IL Pattern (Implementation Layers)
+
+**Recognition**: `IL` followed by a number, optionally with `+` (e.g., `IL3`, `IL4+`).
+
+**What IL means**: Structure a planning document into N incremental implementation layers, where each layer is independently reviewable, testable, and commitable.
+
+**How it works**:
+- `IL3` — plan exactly 3 layers
+- `IL3+` — plan 3 or more layers (Claude decides if more are needed)
+
+**Layer design principles**:
+- Each layer builds on the previous one
+- Each layer introduces distinct, testable changes
+- Each layer is reviewable and commitable on its own
+- Earlier layers are simpler (e.g., add a test), later layers add complexity (e.g., full behavior)
+
+**Example** — `IL3` for adding a validation feature:
+
+| Layer | Scope | Verifiable by |
+|-------|-------|---------------|
+| 1 | Add test for the new validation rule | Test runs (fails — red) |
+| 2 | Add validation function + imports | Test passes (green) |
+| 3 | Integrate into form, add edge-case tests | Full behavior works |
+
+**Combinable**: IL is independent but can combine with other abbreviations.
+Example: `"auth refactor OOO, IL4+, ACI"` — surface options first, then plan in 4+ layers, confirm intent before each phase.
+
+**Output**: Layers go into the planning document as a numbered section, each with scope, expected result, and files touched.
 
 
 ### Research and Clarification Guidelines
