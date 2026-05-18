@@ -44,7 +44,7 @@ For each selected repository, perform the following:
    - Display the diff/changes or new content
    - If no changes and file exists, inform user that files are identical
    - Ask: "Proceed with updating <project-name>/CLAUDE.md?" using AskUserQuestion
-   - Options: "Yes, update", "Skip this project", "Show full template"
+   - Options: "Yes, update", "Skip this project"
 
 4. **Write template if confirmed**:
    - Write the fetched template content to `<project-path>\CLAUDE.md` using the Write tool
