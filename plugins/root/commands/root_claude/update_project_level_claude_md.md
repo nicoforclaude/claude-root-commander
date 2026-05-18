@@ -7,35 +7,24 @@ You are updating a project-level CLAUDE.md file from the template.
 
 ## Path Configuration
 
-The template is located in the plugin directory:
-- **Plugin location**: `CLAUDE_PLUGINS_ROOT/root/templates/`
-- **CLAUDE_PLUGINS_ROOT** is defined in workspace root CLAUDE.md (e.g., `C:\KolyaRepositories\.localData\claude-plugins`)
-- **Template**: `<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`
+The template is always fetched from the public GitHub repository:
+- **Template URL**: `https://raw.githubusercontent.com/nicoforclaude/claude-root-commander/main/plugins/root/templates/project-claude.md`
+
+This ensures the template is always up-to-date regardless of local installation state.
 
 ## Your Task
 
-### Step 1: Determine Template Path
+### Step 1: Fetch Template
 
-Read workspace root CLAUDE.md to find CLAUDE_PLUGINS_ROOT value, then construct:
-- Template path: `<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`
+Use WebFetch to retrieve the template content from the URL in Path Configuration above.
 
 ### Step 2: Select Target Project(s)
 
 Ask the user which project(s) to update using AskUserQuestion:
 
-```
-Question: "Which project(s) should be updated?"
-Header: "Target"
-multiSelect: true
-Options:
-  - "All managed repos" - Update CLAUDE.md for all managed repositories
-  - "chessarms/calc" - Chess calculation engine repository
-  - "chessarms/fishwrap" - Chess fishwrap repository
-  - "chessarms/tsmain" - Chess main TypeScript repository
-  - "nomadsync-io/tsmain" - NomadSync main TypeScript repository
-```
-
-**Important:** Read the list of managed repos dynamically from `C:\KolyaRepositories\claude_root_commander.md` under "Repositories for syncing claude" section. Use those exact paths in the options.
+Read the list of managed repos from `<CLAUDE_MAIN_WORKSPACE_ROOT>/claude_root_commander.md` under "Repositories for syncing claude". Build the options dynamically:
+- First option: "All managed repos" — update all
+- Remaining options: one per repo path from the config file
 
 ### Step 3: For Each Selected Project
 
@@ -46,9 +35,9 @@ For each selected repository, perform the following:
    - If not exists: Show that a new file will be created from template
 
 2. **Show what would change**:
-   - Source: `<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`
+   - Source: fetched template content (from GitHub)
    - Destination: `<project-path>/CLAUDE.md`
-   - Use git diff: `git diff --no-index <project-path>\CLAUDE.md "<CLAUDE_PLUGINS_ROOT>\root\templates\project-claude.md"` (if file exists)
+   - Write template to a temp file, then: `git diff --no-index "<project-path>\CLAUDE.md" "<temp-file>"` (if file exists)
    - If file doesn't exist, show template content that will be created
 
 3. **Ask for confirmation** (for each project individually if multiple selected):
@@ -57,9 +46,9 @@ For each selected repository, perform the following:
    - Ask: "Proceed with updating <project-name>/CLAUDE.md?" using AskUserQuestion
    - Options: "Yes, update", "Skip this project", "Show full template"
 
-4. **Copy template if confirmed**:
-   - Use PowerShell to copy: `Copy-Item "<CLAUDE_PLUGINS_ROOT>\root\templates\project-claude.md" "<project-path>\CLAUDE.md" -Force`
-   - Verify the copy succeeded
+4. **Write template if confirmed**:
+   - Write the fetched template content to `<project-path>\CLAUDE.md` using the Write tool
+   - Verify the write succeeded
 
 5. **Report results**:
    - Show which projects were updated successfully
@@ -69,14 +58,14 @@ For each selected repository, perform the following:
      - Customize optional sections as needed
      - Commit the file to the project repository
 
-### Step 3: Final Summary
+### Step 4: Final Summary
 
 After processing all selected projects, provide a summary:
 
 ```
 Summary:
-✓ Updated: chessarms/calc, nomadsync-io/tsmain
-- Skipped: chessarms/fishwrap (no changes)
+✓ Updated: org/repo-a, org/repo-b
+- Skipped: org/repo-c (no changes)
 ✗ Failed: [none]
 
 Next steps:
@@ -90,37 +79,37 @@ Next steps:
 
 ```
 Which project(s) should be updated?
-[User selects: chessarms/calc, nomadsync-io/tsmain]
+[User selects: org/repo-a, org/repo-b]
 
-Processing chessarms/calc...
+Processing org/repo-a...
 CLAUDE.md does not exist. Will create new file from template.
 
 [Shows template content preview]
 
-Proceed with updating chessarms/calc/CLAUDE.md?
+Proceed with updating org/repo-a/CLAUDE.md?
 [User selects: Yes, update]
 
-✓ Created chessarms/calc/CLAUDE.md
+✓ Created org/repo-a/CLAUDE.md
 
-Processing nomadsync-io/tsmain...
+Processing org/repo-b...
 Comparing existing CLAUDE.md with template...
 
 Changes found:
 [diff output]
 
-Proceed with updating nomadsync-io/tsmain/CLAUDE.md?
+Proceed with updating org/repo-b/CLAUDE.md?
 [User selects: Yes, update]
 
-✓ Updated nomadsync-io/tsmain/CLAUDE.md
+✓ Updated org/repo-b/CLAUDE.md
 
 Summary:
-✓ Updated: chessarms/calc (new), nomadsync-io/tsmain
+✓ Updated: org/repo-a (new), org/repo-b
 ...
 ```
 
 ## Important Notes
 
-- The template (`<CLAUDE_PLUGINS_ROOT>/root/templates/project-claude.md`) is the source of truth
+- The template on GitHub is the source of truth — always fetched fresh
 - Each project's CLAUDE.md should be customized after copying
 - Project CLAUDE.md files are committed to their respective repositories
 - This is different from root CLAUDE.md which lives at workspace root
