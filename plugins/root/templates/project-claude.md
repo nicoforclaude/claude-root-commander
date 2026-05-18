@@ -48,6 +48,8 @@ Examples:
 
 At the start of every code review response, output a summary table:
 
+*Example:*
+
 | # | File | Severity | Issue |
 |---|------|----------|-------|
 | 1 | `src/lib/api/vmApi.svelte.ts` | 🔴 Critical | Null check missing before access |
